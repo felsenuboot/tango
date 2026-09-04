@@ -288,3 +288,48 @@ mod tests {
         assert!(entry(Vec::new()).grouped(&pref(&["eng"])).meanings.is_empty());
     }
 }
+
+/// One kanji from KANJIDIC2, with the readings and meanings a learner looks up.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Kanji {
+    pub literal: char,
+    /// School grade 1–6, 8 for the remaining jōyō kanji, 9–10 for name kanji; None otherwise.
+    pub grade: Option<u8>,
+    pub strokes: u8,
+    /// Newspaper frequency rank, 1 for the most common of 2,500; None beyond that.
+    pub freq: Option<u16>,
+    /// The old four-level JLPT rating KANJIDIC2 carries (1 hardest, 4 easiest).
+    pub jlpt: Option<u8>,
+    /// Classical radical number (1–214).
+    pub radical: u8,
+    pub on: Vec<String>,
+    pub kun: Vec<String>,
+    pub nanori: Vec<String>,
+    /// Meanings with ISO 639-2 languages like the entries ("eng", "fre", "spa", "por").
+    pub meanings: Vec<Gloss>,
+}
+
+impl Kanji {
+    pub fn meanings_in(&self, lang: &str) -> Vec<&str> {
+        self.meanings
+            .iter()
+            .filter(|m| m.lang == lang)
+            .map(|m| m.text.as_str())
+            .collect()
+    }
+}
+
+/// The stroke order of one kanji from KanjiVG: SVG path data in stroke order, in a 109×109 box.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Strokes {
+    pub literal: char,
+    pub paths: Vec<String>,
+}
+
+/// One radical of the multi-radical lookup and the kanji that contain it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Radical {
+    pub radical: String,
+    pub strokes: u8,
+    pub kanji: Vec<char>,
+}

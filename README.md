@@ -35,6 +35,11 @@ Offline, with English and German glosses side by side.
   all lists as JSON.
   "Open in Takoboto" above an entry, and `tango https://takoboto.jp/?w=…`
   opens the entry from a link.
+- **Kanji.** Click a kanji in a headword, or search a single kanji, for its
+  page: stroke order from KanjiVG with numbered strokes and a play button,
+  readings, meanings, stroke count, grade, JLPT level and frequency from
+  KANJIDIC2, its parts, and the words that use it. The Kanji page in the
+  sidebar finds kanji by their parts, with a stroke-count filter.
 - **Wadoku.** The Japanese–German dictionary from wadoku.de next to JMdict,
   with pitch accent shown as ⓪ ① ② beside the reading. Search covers both;
   a chip marks Wadoku entries.
@@ -46,7 +51,6 @@ Offline, with English and German glosses side by side.
 
 ## Roadmap
 
-- Kanji view: KANJIDIC details, KanjiVG stroke order, radicals
 - Example sentences from Tatoeba
 
 Everything above plus the WaniKani, MaruMori, Kitsun.io and Takoboto
@@ -77,6 +81,11 @@ planned.
   the property of the Electronic Dictionary Research and Development Group and
   used under its [licence](https://www.edrdg.org/edrdg/licence.html)
   (CC BY-SA 4.0). The app downloads it on first use; nothing is bundled.
+- [KANJIDIC2](https://www.edrdg.org/wiki/KANJIDIC_Project.html) and
+  [RADKFILE](https://www.edrdg.org/krad/kradinf.html) are the property of the
+  EDRDG and used under the same licence as JMdict (CC BY-SA 4.0).
+- [KanjiVG](https://kanjivg.tagaini.net/) stroke order data is © Ulrich Apel,
+  Creative Commons Attribution-ShareAlike 3.0.
 - [Wadoku](https://www.wadoku.de/) (Japanese–German, with pitch accent) is
   © Ulrich Apel and the Wadoku.de contributors, used under the
   [Wadoku dictionary licence](https://www.wadoku.de/wiki/display/WAD/W%C3%B6rterbuch+Lizenz),

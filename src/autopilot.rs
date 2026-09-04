@@ -8,6 +8,8 @@
 //!   select <index>       select the result row at that index
 //!   import [source] <path>   import a dictionary file (JMdict when no source id is given)
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
+//!   kanji <char>         show the kanji page for that character
+//!   radical <r>          toggle that radical on the Kanji sidebar page
 //!   star                 toggle the current entry in Favourites
 //!   sidebar search|lists show that sidebar page
 //!   list <name>          open that word list in the sidebar
@@ -83,7 +85,13 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         }
         "menustate" => log_menu_metrics(&win.menu_button),
         "star" => win.toggle_favourite(),
+        "kanji" => {
+            if let Some(c) = arg.chars().next() {
+                win.show_kanji(c);
+            }
+        }
         "sidebar" => win.show_sidebar_page(arg),
+        "radical" => win.radicals_page().toggle(arg),
         "list" => match win.user().list_by_name(arg) {
             Ok(Some(list)) => {
                 win.show_sidebar_page("lists");

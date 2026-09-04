@@ -21,7 +21,7 @@ fn lang_name(lang: &str) -> String {
     .to_string()
 }
 
-fn lang_label(lang: &str) -> String {
+pub fn lang_label(lang: &str) -> String {
     match lang {
         "eng" => "EN",
         "ger" => "DE",
@@ -47,9 +47,17 @@ fn label(text: &str, css: &[&str]) -> gtk::Label {
         .build()
 }
 
+type KanjiCallback = std::rc::Rc<std::cell::RefCell<Option<Box<dyn Fn(char)>>>>;
+
 pub struct EntryView {
     root: gtk::ScrolledWindow,
     body: gtk::Box,
+    /// What happens when a kanji in the headword is clicked.
+    on_kanji: KanjiCallback,
+}
+
+pub fn is_kanji(c: char) -> bool {
+    matches!(c, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}' | '々')
 }
 
 impl EntryView {
@@ -68,11 +76,52 @@ impl EntryView {
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vexpand(true)
             .build();
-        Self { root, body }
+        Self {
+            root,
+            body,
+            on_kanji: Default::default(),
+        }
     }
 
     pub fn widget(&self) -> &gtk::ScrolledWindow {
         &self.root
+    }
+
+    pub fn connect_kanji(&self, f: impl Fn(char) + 'static) {
+        *self.on_kanji.borrow_mut() = Some(Box::new(f));
+    }
+
+    /// The headword with every kanji as a button, the rest as text.
+    fn headword(&self, text: &str) -> gtk::Box {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let mut run = String::new();
+        let flush = |run: &mut String, row: &gtk::Box| {
+            if !run.is_empty() {
+                row.append(&label(run, &["tango-headword"]));
+                run.clear();
+            }
+        };
+        for c in text.chars() {
+            if is_kanji(c) {
+                flush(&mut run, &row);
+                let button = gtk::Button::builder()
+                    .label(c.to_string())
+                    .tooltip_text("Show this kanji")
+                    .css_classes(["flat", "tango-headword-kanji"])
+                    .build();
+                let on_kanji = self.on_kanji.clone();
+                button.connect_clicked(move |_| {
+                    if let Some(f) = on_kanji.borrow().as_ref() {
+                        f(c);
+                    }
+                });
+                row.append(&button);
+            } else {
+                run.push(c);
+            }
+        }
+        flush(&mut run, &row);
+        row
     }
 
     /// `preferred` is the configured language order; languages the entry has beyond that follow.
@@ -81,7 +130,7 @@ impl EntryView {
             self.body.remove(&child);
         }
         let head = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        head.append(&label(entry.headword(), &["tango-headword"]));
+        head.append(&self.headword(entry.headword()));
         if entry.common {
             let tag = gtk::Label::builder()
                 .label("common")

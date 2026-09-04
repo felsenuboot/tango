@@ -51,6 +51,9 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/model.rs` | `Entry`, `Sense`, `Gloss`: the plain data everything else passes around |
 | `src/dict/jmdict.rs` | streaming JMdict XML reader, expands the DTD entities |
 | `src/dict/wadoku.rs` | streaming Wadoku XML reader: spellings, reading, accent numbers, grammar mapped to JMdict wording, German senses; unpacks the tar.xz |
+| `src/dict/kanjidic.rs` | KANJIDIC2 reader: readings, meanings per language, grade, strokes, JLPT, frequency, radical |
+| `src/dict/kanjivg.rs` | KanjiVG single-XML reader: SVG path data per stroke; newest release from the GitHub API |
+| `src/dict/radkfile.rs` | RADKFILE reader (EUC-JP inside kradzip.zip): radical → kanji |
 | `src/dict/sources.rs` | the source registry (id, name, URL, file, licence) and the download helper |
 | `src/search/mod.rs` | the search pipeline: romaji to kana, deinflection, database, hits with notes |
 | `src/search/query.rs` | the box syntax: `#tags`, `"exact"` quotes, `*`/`?` wildcards |
@@ -67,10 +70,13 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/ui/import_dialog.rs` | progress dialog + worker thread + channel |
 | `src/ui/preferences.rs` | preferences dialog: General, and Dictionaries (installed sources) |
 | `src/ui/lists.rs` | the Lists sidebar page: lists, one list's entries, rename/delete/export/import |
+| `src/ui/kanji_view.rs` | the kanji page: diagram, facts, readings, meanings, parts, words with the kanji |
+| `src/ui/strokes.rs` | SVG path parser and the cairo drawing area that writes a kanji stroke by stroke |
+| `src/ui/radicals.rs` | the Kanji sidebar page: search by radicals with a stroke filter |
 | `src/ui/theme.rs` | colour scheme: follow the system, or force light / dark above the user's GTK CSS |
 | `src/config.rs` | JSON config in `~/.config/tango`, XDG paths |
 | `src/autopilot.rs` | scripted UI driving (below) |
-| `tests/fixtures/` | a seven-entry JMdict sample and a five-entry Wadoku sample the unit tests use |
+| `tests/fixtures/` | small samples of JMdict, Wadoku, KANJIDIC2, KanjiVG and RADKFILE the unit tests use |
 | `packaging/arch/PKGBUILD` | the `tango-git` Arch package; `install.sh` builds it from the checkout |
 
 ## The two kinds of data
@@ -138,6 +144,17 @@ byte-order mark, no header, list name in column 1, `word, , reading` in column
 and stay empty. Importing a CSV into a list detects a Takoboto export by that
 fourth column and puts its rows into the lists it names instead. Words are
 matched against the enabled dictionaries by headword, then reading.
+
+## Kanji data
+
+Three sources feed the kanji page and are managed like the dictionaries:
+KANJIDIC2 (`kanji` table), KanjiVG (`kanji_strokes`: the SVG path data per
+stroke, drawn with cairo by `ui::strokes`, which parses the move, line and
+cubic commands KanjiVG uses) and RADKFILE (`kanji_radicals`). They hold no
+entries, so `remove_source` clears their table instead. The kanji page shows
+whatever is installed; "words with this kanji" is a GLOB scan over the kanji
+forms, fine on demand. The radical search intersects `kanji_radicals` and
+greys out radicals no remaining kanji contains.
 
 ## JMdict and its languages
 

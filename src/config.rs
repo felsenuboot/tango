@@ -213,6 +213,7 @@ mod tests {
 
         cfg.set_source_enabled("jmdict", false);
         assert!(!cfg.enabled_sources().contains(&"jmdict".to_string()));
+        assert!(cfg.enabled_sources().contains(&"wadoku".to_string()));
         cfg.move_source_up("jmdict"); // first already: no-op, no panic
         assert_eq!(cfg.source_settings()[0].id, "jmdict");
     }

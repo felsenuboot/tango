@@ -56,8 +56,49 @@ pub const WADOKU: Source = Source {
     latest: Some(crate::dict::wadoku::latest_url),
 };
 
-/// Every source, in the default search order.
-pub const SOURCES: &[&Source] = &[&JMDICT, &WADOKU];
+/// KANJIDIC2: readings, meanings, stroke count, grade, JLPT and frequency per kanji.
+pub const KANJIDIC: Source = Source {
+    id: "kanjidic",
+    name: "KANJIDIC2",
+    description: "Kanji: readings, meanings, stroke count, grade, JLPT level and frequency, by the EDRDG.",
+    url: "https://www.edrdg.org/kanjidic/kanjidic2.xml.gz",
+    filename: "kanjidic2.xml.gz",
+    licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
+    licence_url: "https://www.edrdg.org/edrdg/licence.html",
+    size_mb: 2,
+    latest: None,
+};
+
+/// KanjiVG: stroke order as SVG paths. Released as dated files on GitHub; `latest` reads the
+/// releases API for the newest single-file XML.
+pub const KANJIVG: Source = Source {
+    id: "kanjivg",
+    name: "KanjiVG",
+    description: "Stroke order diagrams for 6,700 kanji, by Ulrich Apel.",
+    url: "https://api.github.com/repos/KanjiVG/kanjivg/releases/latest",
+    filename: "kanjivg.xml.gz",
+    licence: "Creative Commons Attribution-ShareAlike 3.0",
+    licence_url: "https://kanjivg.tagaini.net/",
+    size_mb: 4,
+    latest: Some(crate::dict::kanjivg::latest_url),
+};
+
+/// RADKFILE: which radicals each kanji contains, for search by radicals.
+pub const RADKFILE: Source = Source {
+    id: "radkfile",
+    name: "Radicals (RADKFILE)",
+    description: "The radical index for looking kanji up by their parts, by the EDRDG.",
+    url: "https://www.edrdg.org/pub/Nihongo/kradzip.zip",
+    filename: "kradzip.zip",
+    licence: "EDRDG licence (Creative Commons Attribution-ShareAlike 4.0)",
+    licence_url: "https://www.edrdg.org/edrdg/licence.html",
+    size_mb: 1,
+    latest: None,
+};
+
+/// Every source, in the default search order. The kanji sources hold no entries; they are
+/// listed so the Dictionaries page manages them like the others.
+pub const SOURCES: &[&Source] = &[&JMDICT, &WADOKU, &KANJIDIC, &KANJIVG, &RADKFILE];
 
 pub fn by_id(id: &str) -> Option<&'static Source> {
     SOURCES.iter().find(|s| s.id == id).copied()

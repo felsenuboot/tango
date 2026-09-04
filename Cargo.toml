@@ -27,6 +27,8 @@ log = "0.4"
 env_logger = "0.11"
 liblzma = "0.4"
 tar = "0.4"
+zip = "7.2.0"
+encoding_rs = "0.8.35"
 
 [profile.release]
 lto = "thin"

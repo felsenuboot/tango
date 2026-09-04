@@ -10,7 +10,9 @@ use gtk::{gdk, gio, glib, glib::clone};
 
 use super::entry_view::EntryView;
 use super::import_dialog;
+use super::kanji_view::KanjiView;
 use super::lists::{ListsPage, ask_name};
+use super::radicals::RadicalsPage;
 use super::thousands;
 use crate::APP_NAME;
 use crate::config::{Config, cache_dir};
@@ -36,6 +38,7 @@ pub struct Window {
     db_path: PathBuf,
     user: Rc<UserDb>,
     lists: Rc<ListsPage>,
+    radicals: Rc<RadicalsPage>,
     /// Search / Lists in the sidebar.
     sidebar_stack: adw::ViewStack,
     /// Star = in Favourites; the menu button next to it picks any list.
@@ -50,6 +53,11 @@ pub struct Window {
     split: adw::NavigationSplitView,
     toasts: adw::ToastOverlay,
     entry_view: EntryView,
+    kanji_view: Rc<KanjiView>,
+    /// Back from the kanji page to the entry.
+    back: gtk::Button,
+    /// "Kanji 猫" under the search box when the query is one kanji with data behind it.
+    kanji_hint: gtk::Button,
     /// The results behind the rows, by row index.
     found: RefCell<Vec<Hit>>,
     current: RefCell<Option<Entry>>,
@@ -113,8 +121,16 @@ impl Window {
             .margin_bottom(6)
             .build();
         search_box.append(&search);
+        let kanji_hint = gtk::Button::builder()
+            .halign(gtk::Align::Start)
+            .margin_start(6)
+            .margin_bottom(6)
+            .css_classes(["flat"])
+            .visible(false)
+            .build();
         let sidebar_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         sidebar_box.append(&search_box);
+        sidebar_box.append(&kanji_hint);
         sidebar_box.append(&scroller);
         // The sidebar holds two pages, Search and Lists, switched in its header bar.
         let lists = ListsPage::new();
@@ -125,6 +141,10 @@ impl Window {
         sidebar_stack
             .add_titled(&lists.widget, Some("lists"), "Lists")
             .set_icon_name(Some("view-list-symbolic"));
+        let radicals = RadicalsPage::new();
+        sidebar_stack
+            .add_titled(&radicals.widget, Some("radicals"), "Kanji")
+            .set_icon_name(Some("accessories-character-map-symbolic"));
         let switcher = adw::ViewSwitcher::builder()
             .stack(&sidebar_stack)
             .policy(adw::ViewSwitcherPolicy::Wide)
@@ -137,8 +157,9 @@ impl Window {
             .title("Search")
             .build();
 
-        // -- content: the entry, or one of the empty states
+        // -- content: the entry, the kanji page, or one of the empty states
         let entry_view = EntryView::new();
+        let kanji_view = KanjiView::new();
         let empty = adw::StatusPage::builder()
             .title("Tango")
             .description("Look up a word in Japanese, English or German.")
@@ -177,7 +198,14 @@ impl Window {
         stack.add_named(&no_dictionary, Some("no-dictionary"));
         stack.add_named(&empty, Some("empty"));
         stack.add_named(entry_view.widget(), Some("entry"));
+        stack.add_named(kanji_view.widget(), Some("kanji"));
         let content_header = adw::HeaderBar::new();
+        let back = gtk::Button::builder()
+            .icon_name("go-previous-symbolic")
+            .tooltip_text("Back to the entry")
+            .visible(false)
+            .build();
+        content_header.pack_start(&back);
         let star = gtk::ToggleButton::builder()
             .icon_name("non-starred-symbolic")
             .action_name("win.star")
@@ -232,6 +260,7 @@ impl Window {
             db_path,
             user,
             lists,
+            radicals,
             sidebar_stack,
             star,
             add_to_list,
@@ -242,6 +271,9 @@ impl Window {
             split,
             toasts,
             entry_view,
+            kanji_view,
+            back,
+            kanji_hint,
             found: RefCell::new(Vec::new()),
             current: RefCell::new(None),
             search_timer: Cell::new(None),
@@ -260,6 +292,30 @@ impl Window {
             move |_| this.select_result(0)
         ));
         this.install_row_menu();
+        this.entry_view.connect_kanji(clone!(
+            #[weak]
+            this,
+            move |c| this.show_kanji(c)
+        ));
+        this.kanji_view.connect_word(clone!(
+            #[weak]
+            this,
+            move |entry| this.show_entry(entry.clone())
+        ));
+        this.back.connect_clicked(clone!(
+            #[weak]
+            this,
+            move |_| this.leave_kanji()
+        ));
+        this.kanji_hint.connect_clicked(clone!(
+            #[weak]
+            this,
+            move |button| {
+                if let Some(c) = button.label().and_then(|l| l.chars().last()) {
+                    this.show_kanji(c);
+                }
+            }
+        ));
         // A sentence cut into words gets a header above the first row of each word.
         this.results.set_header_func(clone!(
             #[weak]
@@ -330,6 +386,7 @@ impl Window {
             ));
         }
         this.lists.attach(&this);
+        this.radicals.attach(&this);
         let import_action = gio::SimpleAction::new("import", None);
         import_action.connect_activate(clone!(
             #[weak]
@@ -393,6 +450,10 @@ impl Window {
 
     pub fn lists_page(&self) -> &Rc<ListsPage> {
         &self.lists
+    }
+
+    pub fn radicals_page(&self) -> &Rc<RadicalsPage> {
+        &self.radicals
     }
 
     // -- word lists -------------------------------------------------------------------------
@@ -905,6 +966,7 @@ impl Window {
         );
         let langs = self.config.borrow().gloss_languages.clone();
         self.no_results.set_description(outcome.hint.as_deref());
+        self.update_kanji_hint(query);
         let any = !outcome.hits.is_empty();
         self.results.remove_all();
         *self.found.borrow_mut() = outcome.hits;
@@ -943,7 +1005,59 @@ impl Window {
         self.entry_view.show(&entry, &langs);
         *self.current.borrow_mut() = Some(entry);
         self.stack.set_visible_child_name("entry");
+        self.back.set_visible(false);
         self.refresh_star();
+    }
+
+    // -- kanji ------------------------------------------------------------------------------
+
+    /// The kanji page for `literal`, with whatever kanji data is installed.
+    pub fn show_kanji(&self, literal: char) {
+        let kanji = self.db.kanji(literal).unwrap_or_else(|e| {
+            log::error!("kanji {literal}: {e:#}");
+            None
+        });
+        let strokes = self.db.strokes(literal).unwrap_or_default();
+        let radicals = self.db.radicals_of(literal).unwrap_or_default();
+        let enabled = self.config.borrow().enabled_sources();
+        let words = self.db.words_with(literal, 40, &enabled).unwrap_or_default();
+        let langs = self.config.borrow().gloss_languages.clone();
+        self.kanji_view.show(
+            literal,
+            kanji.as_ref(),
+            strokes.as_deref(),
+            &radicals,
+            words,
+            &langs,
+        );
+        self.stack.set_visible_child_name("kanji");
+        self.back.set_visible(true);
+        if self.split.is_collapsed() {
+            self.split.set_show_content(true);
+        }
+    }
+
+    fn leave_kanji(&self) {
+        self.back.set_visible(false);
+        let has_entry = self.current.borrow().is_some();
+        self.stack
+            .set_visible_child_name(if has_entry { "entry" } else { "empty" });
+    }
+
+    /// Offers the kanji page when the query is a single kanji with data behind it.
+    fn update_kanji_hint(&self, query: &str) {
+        let mut chars = query.trim().chars();
+        let single = match (chars.next(), chars.next()) {
+            (Some(c), None) if super::entry_view::is_kanji(c) => Some(c),
+            _ => None,
+        };
+        let known = single.is_some_and(|c| {
+            self.db.kanji(c).ok().flatten().is_some() || self.db.strokes(c).ok().flatten().is_some()
+        });
+        self.kanji_hint.set_visible(known);
+        if let Some(c) = single.filter(|_| known) {
+            self.kanji_hint.set_label(&format!("Kanji {c}"));
+        }
     }
 
     /// Re-renders the current entry, e.g. after the gloss language order changed.
@@ -1036,6 +1150,7 @@ impl Window {
             this.refresh_state();
             this.refresh_star();
             this.refresh_search();
+            this.radicals.refresh();
             after();
         });
     }

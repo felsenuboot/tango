@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::bail;
 
 use crate::dict::sources::{self, Source};
-use crate::dict::{jmdict, wadoku};
+use crate::dict::{jmdict, kanjidic, kanjivg, radkfile, wadoku};
 use crate::store::db::Database;
 use crate::store::now_iso8601;
 
@@ -21,6 +21,9 @@ pub fn import_file(db: &Database, source: &Source, path: &Path, report: Report) 
     let result = match source.id {
         "jmdict" => import_jmdict(db, source, path, report),
         "wadoku" => import_wadoku(db, source, path, report),
+        "kanjidic" => import_kanjidic(db, source, path, report),
+        "kanjivg" => import_kanjivg(db, source, path, report),
+        "radkfile" => import_radkfile(db, source, path, report),
         other => bail!("no reader for the {other} source"),
     };
     if result.is_err()
@@ -95,6 +98,60 @@ fn import_jmdict(db: &Database, source: &Source, path: &Path, report: Report) ->
     Ok(count)
 }
 
+fn import_kanjidic(db: &Database, source: &Source, path: &Path, report: Report) -> anyhow::Result<usize> {
+    report(format!("Reading {}…", source.name), None);
+    let version = kanjidic::created(kanjidic::open(path)?)?;
+    db.begin_source(source.id, &now_iso8601())?;
+    let mut batch = Vec::with_capacity(BATCH);
+    let count = kanjidic::for_each_kanji(kanjidic::open(path)?, |k| {
+        batch.push(k);
+        if batch.len() >= BATCH {
+            db.insert_kanji(&batch)?;
+            batch.clear();
+        }
+        Ok(())
+    })?;
+    db.insert_kanji(&batch)?;
+    db.finish_source(source.id, version.as_deref(), &now_iso8601(), count as i64)?;
+    report(format!("Imported {count} kanji."), Some(1.0));
+    Ok(count)
+}
+
+fn import_kanjivg(db: &Database, source: &Source, path: &Path, report: Report) -> anyhow::Result<usize> {
+    report(format!("Reading {}…", source.name), None);
+    // The release date is only in the file name of the download; the cache copy has a fixed name,
+    // so the version is remembered next to it when downloading.
+    let version = std::fs::read_to_string(path.with_extension("version"))
+        .ok()
+        .map(|v| v.trim().to_string())
+        .or_else(|| kanjivg::version_from_name(&path.to_string_lossy()));
+    db.begin_source(source.id, &now_iso8601())?;
+    let mut batch = Vec::with_capacity(BATCH);
+    let count = kanjivg::for_each_kanji(kanjivg::open(path)?, |s| {
+        batch.push(s);
+        if batch.len() >= BATCH {
+            db.insert_strokes(&batch)?;
+            batch.clear();
+        }
+        Ok(())
+    })?;
+    db.insert_strokes(&batch)?;
+    db.finish_source(source.id, version.as_deref(), &now_iso8601(), count as i64)?;
+    report(format!("Imported stroke order for {count} kanji."), Some(1.0));
+    Ok(count)
+}
+
+fn import_radkfile(db: &Database, source: &Source, path: &Path, report: Report) -> anyhow::Result<usize> {
+    report(format!("Reading {}…", source.name), None);
+    let radicals = radkfile::parse(&radkfile::read(path)?);
+    db.begin_source(source.id, &now_iso8601())?;
+    db.insert_radicals(&radicals)?;
+    let count = radicals.len();
+    db.finish_source(source.id, None, &now_iso8601(), count as i64)?;
+    report(format!("Imported {count} radicals."), Some(1.0));
+    Ok(count)
+}
+
 /// Downloads `source` into `cache` and imports it.
 pub fn download_and_import(
     db: &Database,
@@ -105,6 +162,10 @@ pub fn download_and_import(
     let dest = cache.join(source.filename);
     report(format!("Looking up {}…", source.name), None);
     let url = sources::download_url(source)?;
+    // Dated downloads keep their date next to the fixed-name cache copy, as the version.
+    if let Some(version) = kanjivg::version_from_name(&url) {
+        let _ = std::fs::write(dest.with_extension("version"), version);
+    }
     report(format!("Downloading {}…", source.name), None);
     sources::download(&url, &dest, &mut |done, total| match total {
         Some(total) => report(
@@ -198,6 +259,60 @@ mod tests {
             ["jmdict", "wadoku"]
         );
         assert_eq!(status[1].version.as_deref(), Some("2026-07-05"));
+    }
+
+    #[test]
+    fn kanji_sources_import() {
+        let db = Database::open_in_memory().unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        assert_eq!(
+            import_file(
+                &db,
+                &sources::KANJIDIC,
+                &fixtures.join("kanjidic2-sample.xml"),
+                &mut |_, _| {}
+            )
+            .unwrap(),
+            3
+        );
+        assert_eq!(
+            import_file(
+                &db,
+                &sources::KANJIVG,
+                &fixtures.join("kanjivg-sample.xml"),
+                &mut |_, _| {}
+            )
+            .unwrap(),
+            2
+        );
+        assert_eq!(
+            import_file(
+                &db,
+                &sources::RADKFILE,
+                &fixtures.join("radkfile-sample.txt"),
+                &mut |_, _| {}
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(db.kanji('猫').unwrap().unwrap().meanings_in("eng"), ["cat"]);
+        assert_eq!(db.strokes('猫').unwrap().unwrap().len(), 11);
+        assert!(
+            db.kanji_with_radicals(&["一".into()], None)
+                .unwrap()
+                .contains(&'一')
+        );
+        let status = db.sources().unwrap();
+        assert_eq!(status.len(), 3);
+        assert_eq!(
+            status
+                .iter()
+                .find(|s| s.id == "kanjidic")
+                .unwrap()
+                .version
+                .as_deref(),
+            Some("2026-09-04")
+        );
     }
 
     #[test]

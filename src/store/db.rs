@@ -1,8 +1,9 @@
 //! The dictionary database: one SQLite file, plain SQL.
 //!
-//! Schema v4: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
+//! Schema v5: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
 //! source and the source's own number, with its pitch accent), `forms` (kanji and readings),
-//! `senses`, `glosses`, and
+//! `senses`, `glosses`, the kanji tables (`kanji` from KANJIDIC2, `kanji_strokes` from KanjiVG,
+//! `kanji_radicals` from RADKFILE), and
 //! `gloss_fts`, an FTS5 index over the gloss text. Headwords and readings are prefix searches on
 //! the `forms_text` index; glosses go through FTS5 (a LIKE scan took half a second per keystroke
 //! on the full JMdict, FTS5 answers in a few milliseconds).
@@ -20,9 +21,9 @@ use anyhow::Context;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
-use crate::model::{Entry, Gloss, Sense};
+use crate::model::{Entry, Gloss, Kanji, Radical, Sense, Strokes};
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -60,6 +61,25 @@ CREATE TABLE IF NOT EXISTS glosses (
     pos INTEGER NOT NULL,
     text TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS kanji (
+    literal TEXT PRIMARY KEY,
+    grade INTEGER, strokes INTEGER NOT NULL, freq INTEGER, jlpt INTEGER, radical INTEGER NOT NULL,
+    onyomi TEXT NOT NULL DEFAULT '',   -- newline-separated, like the sense columns
+    kunyomi TEXT NOT NULL DEFAULT '',
+    nanori TEXT NOT NULL DEFAULT '',
+    meanings TEXT NOT NULL DEFAULT ''  -- one line per meaning: language, tab, text
+);
+CREATE TABLE IF NOT EXISTS kanji_strokes (
+    literal TEXT PRIMARY KEY,
+    paths TEXT NOT NULL               -- SVG path data in stroke order, newline-separated
+);
+CREATE TABLE IF NOT EXISTS kanji_radicals (
+    radical TEXT NOT NULL,
+    strokes INTEGER NOT NULL,
+    literal TEXT NOT NULL,
+    PRIMARY KEY (radical, literal)
+);
+CREATE INDEX IF NOT EXISTS kanji_radicals_literal ON kanji_radicals(literal);
 -- External-content index over glosses.text; `rebuild_gloss_index` fills it after an import.
 -- remove_diacritics 2: \"uber\" finds \"über\".
 CREATE VIRTUAL TABLE IF NOT EXISTS gloss_fts USING fts5(
@@ -301,11 +321,237 @@ impl Database {
         Ok(())
     }
 
-    /// Drops a source and, through the cascades, its entries, forms, senses and glosses.
+    /// Drops a source and, through the cascades, its entries, forms, senses and glosses; the
+    /// kanji sources own a table each instead.
     pub fn remove_source(&self, id: &str) -> anyhow::Result<()> {
+        let table = match id {
+            "kanjidic" => Some("kanji"),
+            "kanjivg" => Some("kanji_strokes"),
+            "radkfile" => Some("kanji_radicals"),
+            _ => None,
+        };
+        if let Some(table) = table {
+            self.conn.execute_batch(&format!("DELETE FROM {table}"))?;
+        }
         self.conn
             .execute("DELETE FROM sources WHERE id = ?1", params![id])?;
         Ok(())
+    }
+
+    // -- kanji ------------------------------------------------------------------------------
+
+    pub fn insert_kanji(&self, kanji: &[Kanji]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT OR REPLACE INTO kanji
+                 (literal, grade, strokes, freq, jlpt, radical, onyomi, kunyomi, nanori, meanings)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )?;
+            for k in kanji {
+                let meanings = k
+                    .meanings
+                    .iter()
+                    .map(|m| format!("{}\t{}", m.lang, m.text))
+                    .collect::<Vec<_>>()
+                    .join(SEP);
+                ins.execute(params![
+                    k.literal.to_string(),
+                    k.grade,
+                    k.strokes,
+                    k.freq,
+                    k.jlpt,
+                    k.radical,
+                    k.on.join(SEP),
+                    k.kun.join(SEP),
+                    k.nanori.join(SEP),
+                    meanings
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn insert_strokes(&self, strokes: &[Strokes]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins =
+                tx.prepare_cached("INSERT OR REPLACE INTO kanji_strokes (literal, paths) VALUES (?1, ?2)")?;
+            for s in strokes {
+                ins.execute(params![s.literal.to_string(), s.paths.join(SEP)])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn insert_radicals(&self, radicals: &[Radical]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT OR REPLACE INTO kanji_radicals (radical, strokes, literal) VALUES (?1, ?2, ?3)",
+            )?;
+            for r in radicals {
+                for k in &r.kanji {
+                    ins.execute(params![r.radical, r.strokes, k.to_string()])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn kanji(&self, literal: char) -> anyhow::Result<Option<Kanji>> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT grade, strokes, freq, jlpt, radical, onyomi, kunyomi, nanori, meanings
+                 FROM kanji WHERE literal = ?1",
+                params![literal.to_string()],
+                |r| {
+                    Ok(Kanji {
+                        literal,
+                        grade: r.get(0)?,
+                        strokes: r.get(1)?,
+                        freq: r.get(2)?,
+                        jlpt: r.get(3)?,
+                        radical: r.get(4)?,
+                        on: split(&r.get::<_, String>(5)?),
+                        kun: split(&r.get::<_, String>(6)?),
+                        nanori: split(&r.get::<_, String>(7)?),
+                        meanings: split(&r.get::<_, String>(8)?)
+                            .into_iter()
+                            .filter_map(|line| {
+                                let (lang, text) = line.split_once('\t')?;
+                                Some(Gloss {
+                                    lang: lang.to_string(),
+                                    text: text.to_string(),
+                                })
+                            })
+                            .collect(),
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    /// SVG path data in stroke order, if KanjiVG has the character.
+    pub fn strokes(&self, literal: char) -> anyhow::Result<Option<Vec<String>>> {
+        let paths: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT paths FROM kanji_strokes WHERE literal = ?1",
+                params![literal.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(paths.map(|p| split(&p)))
+    }
+
+    /// The radicals a kanji is made of, by stroke count.
+    pub fn radicals_of(&self, literal: char) -> anyhow::Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT radical FROM kanji_radicals WHERE literal = ?1 ORDER BY strokes, radical",
+        )?;
+        let rows = stmt.query_map(params![literal.to_string()], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Every radical with its stroke count and how many kanji contain it.
+    pub fn radicals(&self) -> anyhow::Result<Vec<(String, u8, i64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT radical, strokes, count(*) FROM kanji_radicals GROUP BY radical, strokes ORDER BY strokes, radical",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Kanji that contain every one of `radicals` (and have `strokes` strokes, if given), fewest
+    /// strokes and most frequent first.
+    pub fn kanji_with_radicals(&self, radicals: &[String], strokes: Option<u8>) -> anyhow::Result<Vec<char>> {
+        if radicals.is_empty() {
+            return Ok(Vec::new());
+        }
+        let marks = vec!["?"; radicals.len()].join(",");
+        let stroke_filter = if strokes.is_some() {
+            "AND k.strokes = ?"
+        } else {
+            ""
+        };
+        let sql = format!(
+            "SELECT r.literal FROM kanji_radicals r LEFT JOIN kanji k ON k.literal = r.literal
+             WHERE r.radical IN ({marks}) {stroke_filter}
+             GROUP BY r.literal HAVING count(DISTINCT r.radical) = ?
+             ORDER BY coalesce(k.strokes, 99), coalesce(k.freq, 9999), r.literal"
+        );
+        let mut values: Vec<Value> = radicals.iter().map(|r| Value::Text(r.clone())).collect();
+        if let Some(n) = strokes {
+            values.push(Value::Integer(i64::from(n)));
+        }
+        values.push(Value::Integer(radicals.len() as i64));
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map(params_from_iter(values), |r| r.get::<_, String>(0))?;
+        Ok(rows
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(|s| s.chars().next())
+            .collect())
+    }
+
+    /// The radicals that occur together with all of `radicals` in some kanji: the ones still
+    /// worth clicking. Every radical when nothing is selected.
+    pub fn radicals_compatible(&self, radicals: &[String]) -> anyhow::Result<Vec<String>> {
+        if radicals.is_empty() {
+            return Ok(self.radicals()?.into_iter().map(|(r, _, _)| r).collect());
+        }
+        let marks = vec!["?"; radicals.len()].join(",");
+        let sql = format!(
+            "SELECT DISTINCT other.radical FROM kanji_radicals other
+             WHERE other.literal IN (
+                 SELECT r.literal FROM kanji_radicals r WHERE r.radical IN ({marks})
+                 GROUP BY r.literal HAVING count(DISTINCT r.radical) = ?)
+             ORDER BY other.radical"
+        );
+        let mut values: Vec<Value> = radicals.iter().map(|r| Value::Text(r.clone())).collect();
+        values.push(Value::Integer(radicals.len() as i64));
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map(params_from_iter(values), |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Entries whose kanji forms contain `literal`, common first: "words containing this kanji".
+    /// A scan over the forms (no substring index), so it is used on demand, not while typing.
+    pub fn words_with(&self, literal: char, limit: usize, sources: &[String]) -> anyhow::Result<Vec<Entry>> {
+        if sources.is_empty() {
+            return Ok(Vec::new());
+        }
+        let priority = source_priority(sources.len());
+        let members = vec!["?"; sources.len()].join(",");
+        let mut values: Vec<Value> = sources.iter().map(|s| Value::Text(s.clone())).collect();
+        values.push(Value::Text(format!("*{}*", glob_escape(&literal.to_string()))));
+        values.extend(sources.iter().map(|s| Value::Text(s.clone())));
+        values.push(Value::Integer(limit as i64));
+        let sql = format!(
+            "SELECT f.entry_id, e.common, {priority} AS prio, min(length(f.text)) AS len
+             FROM forms f INDEXED BY forms_text JOIN entries e ON e.id = f.entry_id
+             WHERE f.kind = 'k' AND f.text GLOB ? AND e.source IN ({members})
+             GROUP BY f.entry_id ORDER BY e.common DESC, prio, len, f.entry_id LIMIT ?"
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let ids: Vec<i64> = stmt
+            .query_map(params_from_iter(values), |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        self.load(&ids)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))] // tests, and the coming JLPT chips
+    pub fn has_kanji_data(&self) -> anyhow::Result<bool> {
+        let n: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM kanji", [], |r| r.get(0))?;
+        Ok(n > 0)
     }
 
     // -- import -----------------------------------------------------------------------------
@@ -819,6 +1065,78 @@ mod tests {
     }
 
     #[test]
+    fn kanji_tables_round_trip() {
+        let db = sample_db();
+        let cat = Kanji {
+            literal: '猫',
+            grade: Some(8),
+            strokes: 11,
+            freq: Some(1702),
+            jlpt: Some(2),
+            radical: 94,
+            on: vec!["ビョウ".into()],
+            kun: vec!["ねこ".into()],
+            nanori: Vec::new(),
+            meanings: vec![
+                Gloss {
+                    lang: "eng".into(),
+                    text: "cat".into(),
+                },
+                Gloss {
+                    lang: "fre".into(),
+                    text: "chat".into(),
+                },
+            ],
+        };
+        db.begin_source("kanjidic", WHEN).unwrap();
+        db.insert_kanji(std::slice::from_ref(&cat)).unwrap();
+        assert_eq!(db.kanji('猫').unwrap(), Some(cat));
+        assert_eq!(db.kanji('犬').unwrap(), None);
+        assert!(db.has_kanji_data().unwrap());
+
+        db.begin_source("kanjivg", WHEN).unwrap();
+        db.insert_strokes(&[Strokes {
+            literal: '猫',
+            paths: vec!["M1,1".into(), "M2,2".into()],
+        }])
+        .unwrap();
+        assert_eq!(db.strokes('猫').unwrap().unwrap(), ["M1,1", "M2,2"]);
+
+        db.begin_source("radkfile", WHEN).unwrap();
+        db.insert_radicals(&[
+            Radical {
+                radical: "犭".into(),
+                strokes: 3,
+                kanji: vec!['猫', '犬'],
+            },
+            Radical {
+                radical: "田".into(),
+                strokes: 5,
+                kanji: vec!['猫'],
+            },
+        ])
+        .unwrap();
+        assert_eq!(db.radicals_of('猫').unwrap(), ["犭", "田"]);
+        assert_eq!(
+            db.kanji_with_radicals(&["犭".into(), "田".into()], None).unwrap(),
+            ['猫']
+        );
+        assert_eq!(db.kanji_with_radicals(&["犭".into()], None).unwrap().len(), 2);
+        assert_eq!(db.radicals().unwrap().len(), 2);
+        assert_eq!(db.kanji_with_radicals(&["犭".into()], Some(11)).unwrap(), ['猫']);
+        assert_eq!(db.radicals_compatible(&["田".into()]).unwrap(), ["犭", "田"]);
+        assert_eq!(db.radicals_compatible(&[]).unwrap().len(), 2);
+
+        let words = db.words_with('猫', 10, &jmdict_only()).unwrap();
+        assert!(words.iter().all(|e| e.kanji.iter().any(|k| k.contains('猫'))));
+        assert!(words.len() >= 2);
+
+        db.remove_source("kanjidic").unwrap();
+        assert!(!db.has_kanji_data().unwrap());
+        assert!(db.strokes('猫').unwrap().is_some()); // other kanji sources untouched
+    }
+
+    #[test]
     fn sources_listing() {
         let db = sample_db();
         assert_eq!(
@@ -867,7 +1185,7 @@ mod tests {
             .query_row("SELECT count(*) FROM glosses", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stale, 0);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("4"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("5"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -893,7 +1211,7 @@ mod tests {
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
         assert_eq!(db.entry_count().unwrap(), 7);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("4"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("5"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

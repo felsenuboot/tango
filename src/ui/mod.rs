@@ -6,8 +6,11 @@
 
 pub mod entry_view;
 pub mod import_dialog;
+pub mod kanji_view;
 pub mod lists;
 pub mod preferences;
+pub mod radicals;
+pub mod strokes;
 pub mod theme;
 pub mod window;
 
