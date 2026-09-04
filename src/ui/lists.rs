@@ -118,6 +118,7 @@ impl ListsPage {
             .icon_name("view-more-symbolic")
             .menu_model(&menu)
             .css_classes(["flat"])
+            .tooltip_text("Rename, export, import or delete this list")
             .build();
         let header = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
@@ -249,7 +250,7 @@ impl ListsPage {
                 entries: wanikani as i64,
             });
         }
-        self.lists_box.remove_all();
+        super::clear_rows(&self.lists_box);
         for list in &lists {
             let row = adw::ActionRow::builder()
                 .activatable(true)
@@ -305,7 +306,7 @@ impl ListsPage {
             let n = entries.len();
             (entries, vec![None; n])
         };
-        self.entries_box.remove_all();
+        super::clear_rows(&self.entries_box);
         for (e, l) in entries.iter().zip(&learned) {
             let mut title = glib::markup_escape_text(&e.headword).to_string();
             if !e.reading.is_empty() && e.reading != e.headword {

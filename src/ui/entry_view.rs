@@ -193,7 +193,7 @@ impl EntryView {
             let also = format!("Also written {}", entry.kanji[1..].join("、"));
             self.body.append(&label(&also, &["dim-label"]));
         }
-        if !learned.is_empty() {
+        if learned.iter().any(|l| l.stage > 0) {
             self.body.append(&learned_row(learned, entry.headword()));
         }
         let notes = form_notes(entry);
@@ -335,6 +335,8 @@ fn learned_row(learned: &[Learned], headword: &str) -> gtk::FlowBox {
         .halign(gtk::Align::Start)
         .max_children_per_line(20)
         .build();
+    // Locked items are not learned yet; they would only add grey noise here.
+    let learned: Vec<&Learned> = learned.iter().filter(|l| l.stage > 0).collect();
     let mut providers: Vec<&str> = learned.iter().map(|l| l.provider.as_str()).collect();
     providers.sort();
     providers.dedup();
@@ -347,6 +349,7 @@ fn learned_row(learned: &[Learned], headword: &str) -> gtk::FlowBox {
         flow.insert(&caption, -1);
         let mut words: Vec<&Learned> = learned
             .iter()
+            .copied()
             .filter(|l| l.provider == provider && l.kind == Kind::Vocabulary)
             .collect();
         words.sort_by_key(|l| (l.text != headword, l.text.clone()));
@@ -362,6 +365,7 @@ fn learned_row(learned: &[Learned], headword: &str) -> gtk::FlowBox {
         }
         let mut kanji: Vec<&Learned> = learned
             .iter()
+            .copied()
             .filter(|l| l.provider == provider && l.kind == Kind::Kanji)
             .collect();
         kanji.sort_by_key(|l| headword.find(l.text.as_str()).unwrap_or(usize::MAX));

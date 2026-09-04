@@ -117,6 +117,15 @@ pub fn run(
     learned: &LearnedIndex,
 ) -> anyhow::Result<Outcome> {
     let q = query::parse(input);
+    // Enabled in the config is not installed: a source that was never imported, or was removed,
+    // must not make a tag search silently empty.
+    let installed: HashSet<String> = db.sources()?.into_iter().map(|s| s.id).collect();
+    let owned: Vec<String> = sources
+        .iter()
+        .filter(|s| installed.contains(*s))
+        .cloned()
+        .collect();
+    let sources: &[String] = &owned;
     if q.sentences {
         let available = sources.iter().any(|s| s == "tatoeba") && db.has_sentences()?;
         let sentences = if q.text.is_empty() || !available {
@@ -144,16 +153,32 @@ pub fn run(
         group: None,
         learned,
     };
-    let hint = (!q.unknown_tags.is_empty()).then(|| {
-        format!(
-            "Unknown tag #{}. Tags: {}.",
-            q.unknown_tags.join(", #"),
-            query::TAGS
-                .iter()
-                .map(|(n, _)| format!("#{n}"))
-                .collect::<Vec<_>>()
-                .join(" ")
+    let needs_jlpt = q.tags.iter().any(|t| matches!(t, query::Tag::Jlpt(_)));
+    let needs_account = q.tags.iter().any(|t| {
+        matches!(
+            t,
+            query::Tag::Known(_) | query::Tag::KanjiKnown | query::Tag::WkLevel(_)
         )
+    });
+    let hint = if needs_jlpt && !installed.contains("jlpt") {
+        Some("JLPT levels need the JLPT lists, see the Dictionaries page in Preferences.".to_string())
+    } else if needs_account && learned.is_empty() {
+        Some("#known and friends need a learning account, see the Accounts page in Preferences.".to_string())
+    } else {
+        None
+    };
+    let hint = hint.or_else(|| {
+        (!q.unknown_tags.is_empty()).then(|| {
+            format!(
+                "Unknown tag #{}. Tags: {}.",
+                q.unknown_tags.join(", #"),
+                query::TAGS
+                    .iter()
+                    .map(|(n, _)| format!("#{n}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        })
     });
     // Names (JMnedict) come up for exact matches and with `#names`; prefix and gloss searches
     // leave them out, or every "さ" would drown in surnames.
@@ -405,6 +430,18 @@ mod tests {
 
     fn none() -> LearnedIndex {
         LearnedIndex::new()
+    }
+
+    #[test]
+    fn tags_without_their_data_say_so() {
+        let db = sample_db();
+        let both = vec!["jmdict".to_string(), "jlpt".to_string()];
+        let outcome = run(&db, "#jlpt-n5 猫", 10, &both, &[], &none()).unwrap();
+        assert!(outcome.hits.is_empty());
+        assert!(outcome.hint.unwrap().contains("JLPT"));
+        let outcome = run(&db, "#known 猫", 10, &only_jmdict(), &[], &none()).unwrap();
+        assert!(outcome.hits.is_empty());
+        assert!(outcome.hint.unwrap().contains("Accounts"));
     }
 
     #[test]

@@ -33,6 +33,14 @@ thread_local! {
     static WINDOW: RefCell<Option<Rc<Window>>> = const { RefCell::new(None) };
 }
 
+/// Removes a list box's rows and nothing else. `ListBox::remove_all` also removes the
+/// placeholder ("No results", "Empty list"), which then never shows again.
+pub fn clear_rows(list: &gtk::ListBox) {
+    while let Some(row) = list.row_at_index(0) {
+        list.remove(&row);
+    }
+}
+
 /// Runs `f` with the main window, if it exists yet.
 pub fn with_window(f: impl FnOnce(&Rc<Window>)) {
     WINDOW.with(|w| {

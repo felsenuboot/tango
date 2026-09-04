@@ -1197,11 +1197,7 @@ impl Window {
         self.search_online.set_sensitive(!query.trim().is_empty());
         self.update_kanji_hint(query);
         let any = !outcome.hits.is_empty() || !outcome.sentences.is_empty();
-        // Not `remove_all`: that takes the placeholder ("No results") with it, so the sidebar
-        // stayed blank after a search that found nothing.
-        while let Some(row) = self.results.row_at_index(0) {
-            self.results.remove(&row);
-        }
+        super::clear_rows(&self.results);
         *self.found.borrow_mut() = outcome.hits;
         *self.found_sentences.borrow_mut() = outcome.sentences;
         for sentence in self.found_sentences.borrow().iter() {
@@ -1506,6 +1502,9 @@ impl Window {
         after: impl FnOnce() + 'static,
     ) {
         let this = Rc::downgrade(self);
+        // A dictionary job replaces entries, so the shown one is dropped; an account job leaves
+        // the entry where it is and only its chips change.
+        let dictionary_job = sources::by_id(id).is_some();
         let done: jobs::DoneFn = Box::new(move |result| {
             let Some(this) = this.upgrade() else { return };
             match result {
@@ -1516,11 +1515,13 @@ impl Window {
                     this.toasts.add_toast(toast);
                 }
             }
-            *this.current.borrow_mut() = None;
-            this.refresh_state();
+            if dictionary_job {
+                *this.current.borrow_mut() = None;
+                this.refresh_state();
+                this.radicals.refresh();
+            }
             this.refresh_star();
             this.refresh_search();
-            this.radicals.refresh();
             after();
         });
         self.jobs.enqueue(id, title, Box::new(job), done);
