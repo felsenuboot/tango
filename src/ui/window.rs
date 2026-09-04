@@ -10,6 +10,7 @@ use gtk::{gio, glib, glib::clone};
 
 use super::entry_view::EntryView;
 use super::import_dialog;
+use super::lists::{ListsPage, ask_name};
 use super::thousands;
 use crate::APP_NAME;
 use crate::config::{Config, cache_dir};
@@ -18,6 +19,7 @@ use crate::model::Entry;
 use crate::search::{self, Hit};
 use crate::store::db::Database;
 use crate::store::import;
+use crate::store::user::{ListEntry, UserDb};
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 const RESULT_LIMIT: usize = 100;
@@ -31,6 +33,13 @@ pub struct Window {
     config: Rc<RefCell<Config>>,
     db: Rc<Database>,
     db_path: PathBuf,
+    user: Rc<UserDb>,
+    lists: Rc<ListsPage>,
+    /// Search / Lists in the sidebar.
+    sidebar_stack: adw::ViewStack,
+    /// Star = in Favourites; the menu button next to it picks any list.
+    star: gtk::ToggleButton,
+    add_to_list: gtk::MenuButton,
     results: gtk::ListBox,
     /// The "No results" page under the list; its description carries search hints.
     no_results: adw::StatusPage,
@@ -50,6 +59,7 @@ impl Window {
         config: Rc<RefCell<Config>>,
         db: Rc<Database>,
         db_path: PathBuf,
+        user: Rc<UserDb>,
     ) -> Rc<Self> {
         let state = config.borrow().window.clone();
         let win = adw::ApplicationWindow::builder()
@@ -75,7 +85,7 @@ impl Window {
             .tooltip_text("Main menu")
             .build();
         keep_menu_out_of_reserved_strip(&win, &menu_button);
-        let header = adw::HeaderBar::builder().show_title(false).build();
+        let header = adw::HeaderBar::new();
         header.pack_end(&menu_button);
         let results = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::Single)
@@ -103,7 +113,21 @@ impl Window {
         let sidebar_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         sidebar_box.append(&search_box);
         sidebar_box.append(&scroller);
-        let sidebar_view = adw::ToolbarView::builder().content(&sidebar_box).build();
+        // The sidebar holds two pages, Search and Lists, switched in its header bar.
+        let lists = ListsPage::new();
+        let sidebar_stack = adw::ViewStack::new();
+        sidebar_stack
+            .add_titled(&sidebar_box, Some("search"), "Search")
+            .set_icon_name(Some("edit-find-symbolic"));
+        sidebar_stack
+            .add_titled(&lists.widget, Some("lists"), "Lists")
+            .set_icon_name(Some("view-list-symbolic"));
+        let switcher = adw::ViewSwitcher::builder()
+            .stack(&sidebar_stack)
+            .policy(adw::ViewSwitcherPolicy::Wide)
+            .build();
+        header.set_title_widget(Some(&switcher));
+        let sidebar_view = adw::ToolbarView::builder().content(&sidebar_stack).build();
         sidebar_view.add_top_bar(&header);
         let sidebar_page = adw::NavigationPage::builder()
             .child(&sidebar_view)
@@ -150,8 +174,23 @@ impl Window {
         stack.add_named(&no_dictionary, Some("no-dictionary"));
         stack.add_named(&empty, Some("empty"));
         stack.add_named(entry_view.widget(), Some("entry"));
+        let content_header = adw::HeaderBar::new();
+        let star = gtk::ToggleButton::builder()
+            .icon_name("non-starred-symbolic")
+            .action_name("win.star")
+            .tooltip_text("Favourite (Ctrl+D)")
+            .sensitive(false)
+            .build();
+        let add_to_list = gtk::MenuButton::builder()
+            .icon_name("view-list-symbolic")
+            .tooltip_text("Add to a list")
+            .sensitive(false)
+            .popover(&gtk::Popover::new())
+            .build();
+        content_header.pack_end(&add_to_list);
+        content_header.pack_end(&star);
         let content_view = adw::ToolbarView::builder().content(&stack).build();
-        content_view.add_top_bar(&adw::HeaderBar::new());
+        content_view.add_top_bar(&content_header);
         let content_page = adw::NavigationPage::builder()
             .child(&content_view)
             .title(APP_NAME)
@@ -179,6 +218,11 @@ impl Window {
             config,
             db,
             db_path,
+            user,
+            lists,
+            sidebar_stack,
+            star,
+            add_to_list,
             results,
             no_results,
             stack,
@@ -246,6 +290,21 @@ impl Window {
             }
         ));
         this.win.add_action(&search_action);
+        let star_action = gio::SimpleAction::new("star", None);
+        star_action.connect_activate(clone!(
+            #[weak]
+            this,
+            move |_, _| this.toggle_favourite()
+        ));
+        this.win.add_action(&star_action);
+        if let Some(popover) = this.add_to_list.popover() {
+            popover.connect_show(clone!(
+                #[weak]
+                this,
+                move |popover| this.fill_list_popover(popover)
+            ));
+        }
+        this.lists.attach(&this);
         let import_action = gio::SimpleAction::new("import", None);
         import_action.connect_activate(clone!(
             #[weak]
@@ -292,6 +351,200 @@ impl Window {
 
     pub fn db(&self) -> &Rc<Database> {
         &self.db
+    }
+
+    pub fn user(&self) -> &Rc<UserDb> {
+        &self.user
+    }
+
+    pub fn toast(&self, text: &str) {
+        self.toasts.add_toast(adw::Toast::new(text));
+    }
+
+    /// Shows the Search or the Lists page of the sidebar.
+    pub fn show_sidebar_page(&self, name: &str) {
+        self.sidebar_stack.set_visible_child_name(name);
+    }
+
+    pub fn lists_page(&self) -> &Rc<ListsPage> {
+        &self.lists
+    }
+
+    // -- word lists -------------------------------------------------------------------------
+
+    /// After any change to the lists: the Lists page, the star, and the marks in the results.
+    pub fn lists_changed(&self) {
+        self.lists.refresh();
+        self.refresh_star();
+        self.refresh_search();
+    }
+
+    /// The first gloss in the preferred language, what a list row shows for the entry.
+    fn list_gloss(&self, entry: &Entry) -> String {
+        entry.summary(&self.config.borrow().gloss_languages).to_string()
+    }
+
+    pub fn toggle_favourite(&self) {
+        let Some(entry) = self.current.borrow().clone() else {
+            return;
+        };
+        let result = self.user.favourites().and_then(|fav| {
+            if self.user.contains(fav.id, &entry.source, entry.id)? {
+                self.user.remove(fav.id, &entry.source, entry.id)
+            } else {
+                self.user.add(fav.id, &entry, &self.list_gloss(&entry))
+            }
+        });
+        if let Err(e) = result {
+            self.toast(&format!("Cannot change Favourites: {e}"));
+        }
+        self.lists_changed();
+    }
+
+    /// Sets the star and the list button to the current entry.
+    fn refresh_star(&self) {
+        let current = self.current.borrow().clone();
+        let starred = current.as_ref().is_some_and(|e| {
+            self.user
+                .favourites()
+                .and_then(|fav| self.user.contains(fav.id, &e.source, e.id))
+                .unwrap_or(false)
+        });
+        self.star.set_sensitive(current.is_some());
+        self.add_to_list.set_sensitive(current.is_some());
+        self.star.set_active(starred);
+        self.star.set_icon_name(if starred {
+            "starred-symbolic"
+        } else {
+            "non-starred-symbolic"
+        });
+    }
+
+    /// One check button per list for the current entry, plus "New list…".
+    fn fill_list_popover(self: &Rc<Self>, popover: &gtk::Popover) {
+        let Some(entry) = self.current.borrow().clone() else {
+            return;
+        };
+        let column = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .margin_top(6)
+            .margin_bottom(6)
+            .margin_start(6)
+            .margin_end(6)
+            .build();
+        let lists = self.user.lists().unwrap_or_default();
+        let member = self.user.lists_with(&entry.source, entry.id).unwrap_or_default();
+        for list in &lists {
+            let check = gtk::CheckButton::builder()
+                .label(&list.name)
+                .active(member.contains(&list.id))
+                .build();
+            let (id, entry) = (list.id, entry.clone());
+            check.connect_toggled(clone!(
+                #[weak(rename_to = this)]
+                self,
+                move |check| {
+                    let result = if check.is_active() {
+                        this.user.add(id, &entry, &this.list_gloss(&entry))
+                    } else {
+                        this.user.remove(id, &entry.source, entry.id)
+                    };
+                    if let Err(e) = result {
+                        this.toast(&format!("Cannot change the list: {e}"));
+                    }
+                    this.lists_changed();
+                }
+            ));
+            column.append(&check);
+        }
+        let new_list = gtk::Button::builder()
+            .label("New list…")
+            .css_classes(["flat"])
+            .build();
+        new_list.connect_clicked(clone!(
+            #[weak(rename_to = this)]
+            self,
+            #[weak]
+            popover,
+            move |_| {
+                popover.popdown();
+                let entry = entry.clone();
+                ask_name(
+                    &this,
+                    "New list",
+                    "",
+                    "Create",
+                    clone!(
+                        #[weak]
+                        this,
+                        move |name| {
+                            match this.user.create_list(&name) {
+                                Ok(list) => {
+                                    if let Err(e) = this.user.add(list.id, &entry, &this.list_gloss(&entry)) {
+                                        this.toast(&format!("Cannot add to the list: {e}"));
+                                    }
+                                }
+                                Err(e) => this.toast(&format!("Cannot create the list: {e}")),
+                            }
+                            this.lists_changed();
+                        }
+                    ),
+                );
+            }
+        ));
+        column.append(&new_list);
+        popover.set_child(Some(&column));
+    }
+
+    /// Shows the dictionary entry behind a list row, if its source is still installed.
+    pub fn open_list_entry(&self, item: &ListEntry) {
+        match self.db.get(&item.source, item.seq) {
+            Ok(Some(entry)) => {
+                self.show_entry(entry);
+                if self.split.is_collapsed() {
+                    self.split.set_show_content(true);
+                }
+            }
+            Ok(None) => self.toast(&format!("{} is not in the installed dictionaries", item.headword)),
+            Err(e) => self.toast(&format!("Cannot open {}: {e}", item.headword)),
+        }
+    }
+
+    /// Adds CSV rows (headword, reading, meaning, note, …; a header row is skipped) to a list by
+    /// looking the words up; the note column is kept. Returns (added, rows).
+    pub fn add_rows_to_list(&self, list_id: i64, rows: &[Vec<String>]) -> (usize, usize) {
+        let enabled = self.config.borrow().enabled_sources();
+        let mut added = 0;
+        let mut total = 0;
+        for row in rows {
+            let headword = row.first().map(|s| s.trim()).unwrap_or("");
+            if headword.is_empty() || (total == 0 && headword.eq_ignore_ascii_case("headword")) {
+                continue;
+            }
+            total += 1;
+            let reading = row.get(1).map(|s| s.trim()).unwrap_or("");
+            let found = self
+                .db
+                .lookup(&[headword.to_string()], &enabled, 10)
+                .unwrap_or_default();
+            let entry = found
+                .iter()
+                .find(|e| !reading.is_empty() && e.readings.iter().any(|r| r == reading))
+                .or(found.first());
+            if let Some(entry) = entry
+                && self.user.add(list_id, entry, &self.list_gloss(entry)).is_ok()
+            {
+                added += 1;
+                let note = row.get(3).map(|s| s.trim()).unwrap_or("");
+                if !note.is_empty()
+                    && let Err(e) = self.user.set_note(list_id, &entry.source, entry.id, note)
+                {
+                    log::warn!("cannot keep the note for {headword}: {e:#}");
+                }
+            }
+        }
+        (added, total)
     }
 
     pub fn result_count(&self) -> usize {
@@ -345,7 +598,12 @@ impl Window {
         self.results.remove_all();
         *self.found.borrow_mut() = outcome.hits;
         for hit in self.found.borrow().iter() {
-            self.results.append(&result_row(hit, &langs));
+            let listed = self
+                .user
+                .lists_with(&hit.entry.source, hit.entry.id)
+                .map(|l| !l.is_empty())
+                .unwrap_or(false);
+            self.results.append(&result_row(hit, &langs, listed));
         }
         self.results.invalidate_headers();
         if any && !query.trim().is_empty() {
@@ -374,6 +632,7 @@ impl Window {
         self.entry_view.show(&entry, &langs);
         *self.current.borrow_mut() = Some(entry);
         self.stack.set_visible_child_name("entry");
+        self.refresh_star();
     }
 
     /// Re-renders the current entry, e.g. after the gloss language order changed.
@@ -464,6 +723,7 @@ impl Window {
             }
             *this.current.borrow_mut() = None;
             this.refresh_state();
+            this.refresh_star();
             this.refresh_search();
             after();
         });
@@ -503,7 +763,7 @@ fn group_header(word: &str) -> gtk::Label {
         .build()
 }
 
-fn result_row(hit: &Hit, langs: &[String]) -> adw::ActionRow {
+fn result_row(hit: &Hit, langs: &[String], listed: bool) -> adw::ActionRow {
     let entry = &hit.entry;
     let mut title = glib::markup_escape_text(entry.headword()).to_string();
     if !entry.kanji.is_empty() && !entry.reading().is_empty() {
@@ -532,6 +792,14 @@ fn result_row(hit: &Hit, langs: &[String]) -> adw::ActionRow {
             .css_classes(["tango-common"])
             .build();
         row.add_suffix(&tag);
+    }
+    if listed {
+        let star = gtk::Image::builder()
+            .icon_name("starred-symbolic")
+            .tooltip_text("In a word list")
+            .css_classes(["dim-label"])
+            .build();
+        row.add_suffix(&star);
     }
     row
 }

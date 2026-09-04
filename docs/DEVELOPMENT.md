@@ -56,12 +56,15 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/search/romaji.rs` | romaji → hiragana/katakana (Hepburn and the usual typing variants) |
 | `src/search/deinflect.rs` | rule table from inflected verbs and adjectives back to dictionary forms |
 | `src/store/db.rs` | SQLite schema (v3: `sources`, entries per source, FTS5 over glosses), insert, load, lookup, search |
+| `src/store/user.rs` | the user database: word lists, migrated forward, JSON backup |
+| `src/store/csv.rs` | just enough CSV for list import and export |
 | `src/store/import.rs` | the import, download and remove jobs the UI runs on a worker thread |
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
 | `src/ui/entry_view.rs` | renders one entry |
 | `src/ui/import_dialog.rs` | progress dialog + worker thread + channel |
 | `src/ui/preferences.rs` | preferences dialog: General, and Dictionaries (installed sources) |
+| `src/ui/lists.rs` | the Lists sidebar page: lists, one list's entries, rename/delete/export/import |
 | `src/ui/theme.rs` | colour scheme: follow the system, or force light / dark above the user's GTK CSS |
 | `src/config.rs` | JSON config in `~/.config/tango`, XDG paths |
 | `src/autopilot.rs` | scripted UI driving (below) |
@@ -74,9 +77,11 @@ The dictionary database (`~/.local/share/tango/tango.sqlite`) is derived data:
 every row can be imported again from the downloads in `~/.cache/tango`. So a
 schema version bump (`SCHEMA_VERSION` in `src/store/db.rs`) does not migrate
 anything; `Database::open` drops the tables and the app shows the empty state
-with an "Import the downloaded copy" button. User data (word lists, issue #10)
-will live in its own file with real migrations, precisely so the dictionary
-file can stay disposable.
+with an "Import the downloaded copy" button. User data lives in `user.sqlite`
+next to it (`src/store/user.rs`): word lists, migrated forward with
+`PRAGMA user_version` and never dropped, precisely so the dictionary file can
+stay disposable. A list entry keeps the headword, reading and first gloss it
+was added with, so lists read and export without the dictionary.
 
 Each source in `src/dict/sources.rs` is one row in `sources` (version as the
 file states it, import time, entry count) and owns its rows in `entries`
@@ -148,6 +153,7 @@ the `ring` crate (TLS for the downloads) and the link fails.
 | Variable | Purpose |
 | --- | --- |
 | `TANGO_DB` | use this SQLite file instead of `~/.local/share/tango/tango.sqlite` |
+| `TANGO_USER_DB` | the word lists file instead of `~/.local/share/tango/user.sqlite`; set it for every headless run so test runs never touch the real lists |
 | `TANGO_AUTOPILOT` | script to run after start-up (see below) |
 | `TANGO_DEBUG=1` | debug logging (`RUST_LOG` works too) |
 | `XDG_CONFIG_HOME` etc. | point at a scratch directory for a fresh instance |
@@ -161,7 +167,7 @@ join a running desktop instance. Screenshots are taken that way inside a
 headless `cage` compositor:
 
 ```
-export TANGO_DB=/tmp/tango-test/tango.sqlite XDG_CONFIG_HOME=/tmp/tango-test/config
+export TANGO_DB=/tmp/tango-test/tango.sqlite TANGO_USER_DB=/tmp/tango-test/user.sqlite XDG_CONFIG_HOME=/tmp/tango-test/config
 TANGO_AUTOPILOT="sleep 2; import $HOME/.cache/tango/JMdict.gz; sleep 40; search 猫; sleep 2; select 0" \
 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
   cage -- sh -c './target/release/tango & sleep 49; grim shot.png; kill %1'

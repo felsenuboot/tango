@@ -6,6 +6,7 @@
 
 pub mod entry_view;
 pub mod import_dialog;
+pub mod lists;
 pub mod preferences;
 pub mod theme;
 pub mod window;
@@ -16,8 +17,9 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::{gdk, gio};
 
-use crate::config::{Config, database_path};
+use crate::config::{Config, database_path, user_database_path};
 use crate::store::db::Database;
+use crate::store::user::UserDb;
 use crate::{APP_ID, APP_NAME, VERSION};
 use window::Window;
 
@@ -60,6 +62,7 @@ pub fn startup(app: &adw::Application) {
     app.set_accels_for_action("app.preferences", &["<Control>comma"]);
     app.set_accels_for_action("win.search", &["<Control>f", "<Control>k", "slash"]);
     app.set_accels_for_action("win.import", &["<Control>i"]);
+    app.set_accels_for_action("win.star", &["<Control>d"]);
 }
 
 pub fn activate(app: &adw::Application) {
@@ -79,7 +82,16 @@ pub fn activate(app: &adw::Application) {
             return;
         }
     };
-    let win = Window::new(app, config, db, db_path);
+    let user_path = user_database_path();
+    let user = match UserDb::open(&user_path) {
+        Ok(user) => Rc::new(user),
+        Err(e) => {
+            log::error!("cannot open the user database {}: {e:#}", user_path.display());
+            app.quit();
+            return;
+        }
+    };
+    let win = Window::new(app, config, db, db_path, user);
     WINDOW.with(|w| *w.borrow_mut() = Some(win.clone()));
     crate::autopilot::install(app, &win);
     win.win.present();

@@ -28,8 +28,9 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   named colours one priority above user CSS (`src/ui/theme.rs`).
 
 - **The dictionary database is disposable, user data is not.** A schema bump
-  drops and recreates `tango.sqlite` (re-import from the cache); word lists and
-  the like go into their own file with migrations (issue #10).
+  drops and recreates `tango.sqlite` (re-import from the cache); word lists live
+  in `user.sqlite` with forward migrations. Headless runs must set
+  `TANGO_USER_DB` so they never touch Felix's lists.
 - **Roadmap order is in `docs/ROADMAP.md`** and as GitHub milestones 0.2–0.6.
   Work them in that order unless Felix says otherwise.
 

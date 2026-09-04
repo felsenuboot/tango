@@ -170,6 +170,14 @@ pub fn database_path() -> PathBuf {
     }
 }
 
+/// The user's own data (word lists); `TANGO_USER_DB` points test runs elsewhere.
+pub fn user_database_path() -> PathBuf {
+    match std::env::var_os("TANGO_USER_DB") {
+        Some(p) => PathBuf::from(p),
+        None => data_dir().join("user.sqlite"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

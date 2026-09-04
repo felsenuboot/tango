@@ -7,6 +7,7 @@ use anyhow::bail;
 use crate::dict::jmdict;
 use crate::dict::sources::{self, Source};
 use crate::store::db::Database;
+use crate::store::now_iso8601;
 
 /// `(message, fraction 0..1, or None for "busy, unknown how far")`
 pub type Report<'a> = &'a mut dyn FnMut(String, Option<f64>);
@@ -97,13 +98,6 @@ pub fn remove(db: &Database, source: &Source, cache: &Path, report: Report) -> a
         );
     }
     Ok(())
-}
-
-fn now_iso8601() -> String {
-    gtk::glib::DateTime::now_utc()
-        .and_then(|t| t.format_iso8601())
-        .map(|s| s.to_string())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

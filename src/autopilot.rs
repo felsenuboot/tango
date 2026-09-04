@@ -8,6 +8,10 @@
 //!   select <index>       select the result row at that index
 //!   import <path>        import a JMdict file (plain or .gz) into the database, in the background
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
+//!   star                 toggle the current entry in Favourites
+//!   sidebar search|lists show that sidebar page
+//!   list <name>          open that word list in the sidebar
+//!   lists                log the word lists and their entry counts
 //!   preferences [general|dictionaries]   open the preferences, on that page
 //!   about                open the about dialog
 //!   menu                 open the primary menu (or close it, if open)
@@ -69,6 +73,23 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
             glib::timeout_add_local_once(Duration::from_millis(400), move || log_menu_metrics(&button));
         }
         "menustate" => log_menu_metrics(&win.menu_button),
+        "star" => win.toggle_favourite(),
+        "sidebar" => win.show_sidebar_page(arg),
+        "list" => match win.user().list_by_name(arg) {
+            Ok(Some(list)) => {
+                win.show_sidebar_page("lists");
+                win.lists_page().open_list(list.id);
+            }
+            other => log::warn!("autopilot: list {arg:?}: {other:?}"),
+        },
+        "lists" => match win.user().lists() {
+            Ok(lists) => {
+                for l in lists {
+                    log::info!("autopilot list: {} ({} entries)", l.name, l.entries);
+                }
+            }
+            Err(e) => log::warn!("autopilot: lists: {e:#}"),
+        },
         "fullscreen" => win.win.fullscreen(),
         "maximize" => win.win.maximize(),
         "unfullscreen" => {
