@@ -60,6 +60,21 @@ pub const WADOKU: Source = Source {
     latest: Some(crate::dict::wadoku::latest_url),
 };
 
+/// JMnedict: Japanese proper names (people, places, companies, products), the EDRDG's names
+/// file in the JMdict XML shape. Searched only for exact matches or with `#names`.
+pub const JMNEDICT: Source = Source {
+    id: "jmnedict",
+    name: "JMnedict",
+    description: "Names: people, places, companies and products, by the EDRDG.",
+    url: "https://www.edrdg.org/pub/Nihongo/JMnedict.xml.gz",
+    filename: "JMnedict.xml.gz",
+    extra_files: &[],
+    licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
+    licence_url: "https://www.edrdg.org/edrdg/licence.html",
+    size_mb: 13,
+    latest: None,
+};
+
 /// KANJIDIC2: readings, meanings, stroke count, grade, JLPT and frequency per kanji.
 pub const KANJIDIC: Source = Source {
     id: "kanjidic",
@@ -142,7 +157,9 @@ pub const TATOEBA: Source = Source {
 
 /// Every source, in the default search order. The kanji sources hold no entries; they are
 /// listed so the Dictionaries page manages them like the others.
-pub const SOURCES: &[&Source] = &[&JMDICT, &WADOKU, &KANJIDIC, &KANJIVG, &RADKFILE, &TATOEBA];
+pub const SOURCES: &[&Source] = &[
+    &JMDICT, &WADOKU, &JMNEDICT, &KANJIDIC, &KANJIVG, &RADKFILE, &TATOEBA,
+];
 
 pub fn by_id(id: &str) -> Option<&'static Source> {
     SOURCES.iter().find(|s| s.id == id).copied()

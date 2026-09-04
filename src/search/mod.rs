@@ -69,7 +69,7 @@ fn matches(entry: &Entry, tag: query::Tag) -> bool {
             .iter()
             .flat_map(|s| &s.misc)
             .any(|m| m.contains(part)),
-        query::Tag::Sentences => true,
+        query::Tag::Sentences | query::Tag::Names => true,
     }
 }
 
@@ -119,6 +119,19 @@ pub fn run(
                 .join(" ")
         )
     });
+    // Names (JMnedict) come up for exact matches and with `#names`; prefix and gloss searches
+    // leave them out, or every "さ" would drown in surnames.
+    let names_only: Vec<String> = sources.iter().filter(|s| *s == "jmnedict").cloned().collect();
+    let words: Vec<String> = sources.iter().filter(|s| *s != "jmnedict").cloned().collect();
+    let (sources, words): (&[String], &[String]) = if q.names {
+        (&names_only, &names_only)
+    } else {
+        (sources, &words)
+    };
+    let hint = hint.or_else(|| {
+        (q.names && names_only.is_empty())
+            .then(|| "Names need JMnedict, see the Dictionaries page in Preferences.".to_string())
+    });
     let text = q.text.as_str();
     if text.is_empty() || sources.is_empty() {
         return Ok(Outcome {
@@ -130,7 +143,7 @@ pub fn run(
     // Tags thin the hits out, so fetch more before filtering.
     let fetch = if q.tags.is_empty() { limit } else { limit * 4 };
     if q.wildcard {
-        for e in db.search_pattern(text, fetch, sources)? {
+        for e in db.search_pattern(text, fetch, words)? {
             hits.push(e, None);
         }
     } else if q.exact {
@@ -139,14 +152,14 @@ pub fn run(
                 hits.push(e, None);
             }
         } else {
-            for e in db.search_gloss_exact(text, fetch, sources)? {
+            for e in db.search_gloss_exact(text, fetch, words)? {
                 hits.push(e, None);
             }
         }
     } else if is_japanese(text) {
-        japanese(db, text, fetch, sources, &mut hits)?;
+        japanese(db, text, fetch, sources, words, &mut hits)?;
         if hits.list.is_empty() && text.chars().count() >= 2 {
-            sentence(db, text, fetch, sources, &mut hits)?;
+            sentence(db, text, fetch, words, &mut hits)?;
         }
     } else {
         let kana: Vec<String> = [romaji::to_hiragana(text), romaji::to_katakana(text)]
@@ -158,11 +171,11 @@ pub fn run(
                 hits.push(e, None);
             }
         }
-        for e in db.search(text, fetch, sources)? {
+        for e in db.search(text, fetch, words)? {
             hits.push(e, None);
         }
         for k in &kana {
-            japanese(db, k, fetch, sources, &mut hits)?;
+            japanese(db, k, fetch, sources, words, &mut hits)?;
         }
     }
     hits.list.truncate(limit);
@@ -222,17 +235,22 @@ fn sentence(
     Ok(())
 }
 
+/// `sources` for exact lookups (names included), `words` for the prefix search.
 fn japanese(
     db: &Database,
     text: &str,
     limit: usize,
     sources: &[String],
+    words: &[String],
     hits: &mut Hits,
 ) -> anyhow::Result<()> {
-    for e in db.search(text, limit, sources)? {
+    for e in db.lookup(std::slice::from_ref(&text.to_string()), sources, limit)? {
         hits.push(e, None);
     }
-    deinflected(db, text, limit, sources, hits)
+    for e in db.search(text, limit, words)? {
+        hits.push(e, None);
+    }
+    deinflected(db, text, limit, words, hits)
 }
 
 /// The dictionary forms `text` could be an inflection of, verified, with their notes.
@@ -283,7 +301,7 @@ fn deinflected(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dict::sources::JMDICT;
+    use crate::dict::sources::{JMDICT, JMNEDICT};
     use crate::store::import;
     use std::path::Path;
 
@@ -296,6 +314,38 @@ mod tests {
 
     fn only_jmdict() -> Vec<String> {
         vec!["jmdict".into()]
+    }
+
+    fn with_names() -> (Database, Vec<String>) {
+        let db = sample_db();
+        let names = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jmnedict-sample.xml");
+        import::import_file(&db, &JMNEDICT, &names, &mut |_, _| {}).unwrap();
+        (db, vec!["jmdict".into(), "jmnedict".into()])
+    }
+
+    fn ids_of(outcome: &Outcome) -> Vec<i64> {
+        outcome.hits.iter().map(|h| h.entry.id).collect()
+    }
+
+    #[test]
+    fn names_show_for_exact_matches_and_with_the_tag() {
+        let (db, both) = with_names();
+        // A prefix search stays free of names, an exact form finds them after the words.
+        assert!(!ids_of(&run(&db, "さ", 10, &both, &[]).unwrap()).contains(&5000001));
+        assert_eq!(ids_of(&run(&db, "佐藤", 10, &both, &[]).unwrap()), [5000001]);
+        let cat = ids_of(&run(&db, "猫", 10, &both, &[]).unwrap());
+        assert_eq!(cat[0], 1467640);
+        assert!(cat.contains(&5000004)); // the given name 猫, after every JMdict 猫
+        // `#names` searches the names alone, prefixes included.
+        assert_eq!(ids_of(&run(&db, "#names さ", 10, &both, &[]).unwrap()), [5000001]);
+        assert_eq!(
+            ids_of(&run(&db, "#names tokyo", 10, &both, &[]).unwrap()),
+            [5000002]
+        );
+        // Without JMnedict enabled the tag says what is missing.
+        let outcome = run(&db, "#names さ", 10, &only_jmdict(), &[]).unwrap();
+        assert!(outcome.hits.is_empty());
+        assert!(outcome.hint.unwrap().contains("JMnedict"));
     }
 
     #[test]

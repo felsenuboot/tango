@@ -21,7 +21,7 @@ const BATCH: usize = 2000;
 /// leaving half of it behind a row that says it is installed.
 pub fn import_file(db: &Database, source: &Source, path: &Path, report: Report) -> anyhow::Result<usize> {
     let result = match source.id {
-        "jmdict" => import_jmdict(db, source, path, report),
+        "jmdict" | "jmnedict" => import_jmdict(db, source, path, report),
         "wadoku" => import_wadoku(db, source, path, report),
         "kanjidic" => import_kanjidic(db, source, path, report),
         "kanjivg" => import_kanjivg(db, source, path, report),
@@ -442,6 +442,26 @@ mod tests {
                 .as_deref(),
             Some("2026-09-04")
         );
+    }
+
+    #[test]
+    fn jmnedict_imports_as_its_own_source() {
+        let db = Database::open_in_memory().unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let n = import_file(
+            &db,
+            &sources::JMNEDICT,
+            &fixtures.join("jmnedict-sample.xml"),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(n, 4);
+        let status = db.sources().unwrap();
+        assert_eq!(status[0].id, "jmnedict");
+        assert_eq!(status[0].version.as_deref(), Some("2026-09-04"));
+        let names = vec!["jmnedict".to_string()];
+        let found = db.lookup(&["東京".to_string()], &names, 5).unwrap();
+        assert_eq!(found[0].senses[0].pos, ["place name"]);
     }
 
     #[test]

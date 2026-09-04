@@ -40,7 +40,8 @@ pub fn created<R: BufRead>(input: R) -> anyhow::Result<Option<String>> {
             Event::Eof => return Ok(None),
             Event::Comment(comment) => {
                 let text: &str = &comment;
-                if let Some(date) = text.trim().strip_prefix("JMdict created:") {
+                // "JMdict created: 2026-09-04", "JMnedict created: 2026-09-04"
+                if let Some((_, date)) = text.trim().split_once(" created:") {
                     return Ok(Some(date.trim().to_string()));
                 }
             }
@@ -77,7 +78,7 @@ pub fn for_each_entry<R: BufRead>(
             Event::DocType(doctype) => entities = parse_entities(&doctype),
             Event::Start(start) => {
                 text.clear();
-                match start.name().as_ref() {
+                match canonical(start.name().as_ref()) {
                     "entry" => entry = Some(Entry::default()),
                     "sense" => sense = Some(Sense::default()),
                     "gloss" | "lsource" => {
@@ -97,7 +98,7 @@ pub fn for_each_entry<R: BufRead>(
             }
             // `<lsource xml:lang="fre"/>` and `<re_nokanji/>`: an element without text.
             Event::Empty(start) => {
-                let name = start.name().as_ref().to_string();
+                let name = canonical(start.name().as_ref()).to_string();
                 lang = "eng".to_string();
                 wasei = false;
                 for attr in start.attributes().flatten() {
@@ -130,7 +131,7 @@ pub fn for_each_entry<R: BufRead>(
             Event::End(end) => {
                 // Trim once here, not per fragment: "a &amp; b" arrives as three events.
                 let value = std::mem::take(&mut text).trim().to_string();
-                match end.name().as_ref() {
+                match canonical(end.name().as_ref()) {
                     "sense" => {
                         if let (Some(e), Some(s)) = (entry.as_mut(), sense.take()) {
                             e.senses.push(s);
@@ -211,6 +212,17 @@ fn apply_text(
         _ => {}
     }
     Ok(())
+}
+
+/// JMnedict names its elements differently: a `<trans>` is a sense, `<name_type>` its part of
+/// speech ("family or surname", "place name"), `<trans_det>` a gloss.
+fn canonical(name: &str) -> &str {
+    match name {
+        "trans" => "sense",
+        "name_type" => "pos",
+        "trans_det" => "gloss",
+        other => other,
+    }
 }
 
 fn push_last(lists: &mut [Vec<String>], value: String) {
@@ -341,6 +353,25 @@ mod tests {
             amp.senses[0].gloss_text("eng"),
             "cat (archaic reading, for the test) & more"
         );
+    }
+
+    #[test]
+    fn jmnedict_reads_as_entries() {
+        const NAMES: &str = include_str!("../../tests/fixtures/jmnedict-sample.xml");
+        let mut out = Vec::new();
+        for_each_entry(NAMES.as_bytes(), |e| {
+            out.push(e);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0].kanji, ["佐藤"]);
+        assert_eq!(out[0].readings, ["さとう"]);
+        assert_eq!(out[0].senses[0].pos, ["family or surname"]);
+        assert_eq!(out[0].senses[0].gloss_text("eng"), "Satou");
+        assert_eq!(out[1].senses[0].gloss_text("eng"), "Tokyo; Tokyo (city)");
+        assert_eq!(out[2].headword(), "ソニー");
+        assert_eq!(created(NAMES.as_bytes()).unwrap().as_deref(), Some("2026-09-04"));
     }
 
     #[test]

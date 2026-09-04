@@ -29,6 +29,9 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   also" links, and what it says about each form; Wadoku from wadoku.de
   with pitch accent shown as ⓪ ① ② beside the reading. Search covers both,
   in the order you set.
+- 🏷️ **Names.** JMnedict, the EDRDG's names file, as a dictionary of its
+  own: exact matches show up after the words, `#names` searches nothing
+  else.
 - 💬 **Example sentences.** Tatoeba sentences under every entry that has
   them, English and German side by side, the word in bold; `#sentences` in the
   search box searches the sentences themselves, and a sentence page names
@@ -78,12 +81,13 @@ with the desktop entry and icons. Or just `cargo run` from the checkout.
 There is no Flatpak, and Flathub is not planned.
 
 On first start, click **Download JMdict** (about 22 MB). Wadoku, KANJIDIC2,
-KanjiVG, the radical index and the Tatoeba sentences are one click each on
-the Dictionaries page in Preferences.
+KanjiVG, the radical index, the JMnedict names and the Tatoeba sentences are
+one click each on the Dictionaries page in Preferences.
 
 ## Dictionaries and licences
 
 - [JMdict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project),
+  [JMnedict](https://www.edrdg.org/enamdict/enamdict_doc.html),
   [KANJIDIC2](https://www.edrdg.org/wiki/KANJIDIC_Project.html) and
   [RADKFILE](https://www.edrdg.org/krad/kradinf.html) are the property of the
   Electronic Dictionary Research and Development Group and used under its
@@ -102,8 +106,7 @@ bundled with the app.
 
 ## Roadmap
 
-The remaining JMdict entry details, JMnedict names, JLPT levels, and the
-WaniKani and MaruMori integrations. Tracked as
+JLPT levels, external links, and the WaniKani and MaruMori integrations. Tracked as
 [milestones](https://github.com/felsenuboot/tango/milestones); the order and
 the reasoning are in [docs/ROADMAP.md](docs/ROADMAP.md).
 

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE JMnedict [
+<!ELEMENT JMnedict (entry*)>
+<!ENTITY surname "family or surname">
+<!ENTITY place "place name">
+<!ENTITY company "company name">
+<!ENTITY fem "female given name or forename">
+]>
+<!-- JMnedict created: 2026-09-04 -->
+<JMnedict>
+<entry>
+<ent_seq>5000001</ent_seq>
+<k_ele><keb>佐藤</keb></k_ele>
+<r_ele><reb>さとう</reb></r_ele>
+<trans><name_type>&surname;</name_type><trans_det>Satou</trans_det></trans>
+</entry>
+<entry>
+<ent_seq>5000002</ent_seq>
+<k_ele><keb>東京</keb></k_ele>
+<r_ele><reb>とうきょう</reb></r_ele>
+<trans><name_type>&place;</name_type><trans_det>Tokyo</trans_det><trans_det>Tokyo (city)</trans_det></trans>
+</entry>
+<entry>
+<ent_seq>5000003</ent_seq>
+<r_ele><reb>ソニー</reb></r_ele>
+<trans><name_type>&company;</name_type><trans_det>Sony</trans_det></trans>
+</entry>
+<entry>
+<ent_seq>5000004</ent_seq>
+<k_ele><keb>猫</keb></k_ele>
+<r_ele><reb>ねこ</reb></r_ele>
+<trans><name_type>&fem;</name_type><trans_det>Neko</trans_det></trans>
+</entry>
+</JMnedict>

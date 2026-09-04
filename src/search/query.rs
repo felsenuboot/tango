@@ -14,6 +14,8 @@ pub enum Tag {
     Misc(&'static str),
     /// Not a filter: search the Tatoeba sentences instead of the entries.
     Sentences,
+    /// Not a filter: search the JMnedict names instead of the words.
+    Names,
 }
 
 /// Tag names as typed, without the `#`.
@@ -35,6 +37,8 @@ pub const TAGS: &[(&str, Tag)] = &[
     ("kana", Tag::Misc("kana alone")),
     ("sentences", Tag::Sentences),
     ("sentence", Tag::Sentences),
+    ("names", Tag::Names),
+    ("name", Tag::Names),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -50,6 +54,8 @@ pub struct Query {
     pub wildcard: bool,
     /// `#sentences`: look in the example sentences, not the dictionary.
     pub sentences: bool,
+    /// `#names`: look in JMnedict only.
+    pub names: bool,
 }
 
 pub fn parse(input: &str) -> Query {
@@ -60,6 +66,7 @@ pub fn parse(input: &str) -> Query {
             let name = name.to_lowercase();
             match TAGS.iter().find(|(n, _)| *n == name) {
                 Some((_, Tag::Sentences)) => q.sentences = true,
+                Some((_, Tag::Names)) => q.names = true,
                 Some((_, tag)) => q.tags.push(*tag),
                 None => q.unknown_tags.push(name),
             }
@@ -94,6 +101,9 @@ mod tests {
         let q = parse("ne?o*");
         assert!(q.wildcard && !q.exact);
         assert_eq!(parse("#").text, "#");
+        let q = parse("#names 佐藤");
+        assert!(q.names);
+        assert_eq!(q.text, "佐藤");
         let q = parse("#sentences 猫が");
         assert!(q.sentences);
         assert!(q.tags.is_empty());
