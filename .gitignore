@@ -1,1 +1,7 @@
 /target/
+# makepkg leaves these in packaging/arch
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/tango/
+/packaging/arch/*.pkg.tar*
+/packaging/arch/*.log

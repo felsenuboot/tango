@@ -25,7 +25,8 @@ cargo run                                    # dev build against the real config
 | `src/ui/theme.rs` | colour scheme: follow the system, or force light / dark above the user's GTK CSS |
 | `src/config.rs` | JSON config in `~/.config/tango`, XDG paths |
 | `src/autopilot.rs` | scripted UI driving (below) |
-| `tests/fixtures/` | a six-entry JMdict sample the unit tests use |
+| `tests/fixtures/` | a seven-entry JMdict sample the unit tests use |
+| `packaging/arch/PKGBUILD` | the `tango-git` Arch package; `install.sh` builds it from the checkout |
 
 ## The two kinds of data
 
@@ -60,6 +61,17 @@ sampled case, wrong now and then, e.g. マス目) and otherwise lists it as its
 own block after the numbered meanings. A lone German sense is *not* attached
 to meaning 1: in the samples it is sometimes meaning 1, sometimes meaning 2,
 sometimes two meanings joined.
+
+## Packaging
+
+`packaging/arch/PKGBUILD` builds `tango-git` from git: `cargo fetch --locked` in
+`prepare()`, `--frozen` builds and tests after, PNG icons rendered with
+`rsvg-convert`. `TANGO_GIT_URL=file://<checkout>` makes it clone the local
+repository instead of GitHub, which is what `install.sh` does on Arch and what
+the CI job does in an `archlinux:base-devel` container. The package is built
+from the committed state, never from the working tree. `options=(!lto)` is
+needed: makepkg's link-time optimisation drops the C and assembly objects of
+the `ring` crate (TLS for the downloads) and the link fails.
 
 ## Environment variables
 

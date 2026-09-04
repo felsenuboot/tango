@@ -1,0 +1,70 @@
+# Maintainer: Felix Schramm <ich@felixschramm.eu>
+#
+# Builds Tango from git. TANGO_GIT_URL overrides the clone URL; install.sh sets it to
+# file://<checkout> so the package is built offline from the committed state of the working copy.
+# Follows https://wiki.archlinux.org/title/Rust_package_guidelines (fetch in prepare, --frozen after).
+
+pkgname=tango-git
+pkgver=0.1.0.r8.g036afb9
+pkgrel=1
+pkgdesc="Japanese dictionary (JMdict, Wadoku) for GNOME, in GTK 4 and libadwaita"
+arch=(x86_64 aarch64)
+url="https://github.com/felsenuboot/tango"
+license=(MIT)
+depends=(gtk4 libadwaita sqlite hicolor-icon-theme)
+makedepends=(cargo git librsvg)
+provides=(tango)
+conflicts=(tango)
+# makepkg's LTO drops the C and assembly objects of the ring crate (TLS for the downloads).
+options=(!lto)
+source=("tango::git+${TANGO_GIT_URL:-https://github.com/felsenuboot/tango.git}")
+sha256sums=(SKIP)
+
+_app=io.github.felsenuboot.Tango
+_sizes=(16 22 24 32 48 64 96 128 256 512)
+
+pkgver() {
+  cd tango
+  local version
+  version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+  printf '%s.r%s.g%s' "$version" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  cd tango
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd tango
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+  # Fixed-size PNGs for panels and docks that do not rasterise SVG themselves.
+  local s
+  for s in "${_sizes[@]}"; do
+    rsvg-convert -w "$s" -h "$s" -o "icon-$s.png" "data/icons/hicolor/scalable/apps/$_app.svg"
+  done
+}
+
+check() {
+  cd tango
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo test --frozen --release
+}
+
+package() {
+  cd tango
+  install -Dm755 target/release/tango "$pkgdir/usr/bin/tango"
+  install -Dm644 "data/$_app.desktop" "$pkgdir/usr/share/applications/$_app.desktop"
+  install -Dm644 "data/icons/hicolor/scalable/apps/$_app.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_app.svg"
+  install -Dm644 "data/icons/hicolor/symbolic/apps/$_app-symbolic.svg" \
+    "$pkgdir/usr/share/icons/hicolor/symbolic/apps/$_app-symbolic.svg"
+  local s
+  for s in "${_sizes[@]}"; do
+    install -Dm644 "icon-$s.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/$_app.png"
+  done
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

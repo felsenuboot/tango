@@ -58,3 +58,21 @@ jobs:
         with:
           persist-credentials: false
       - run: pipx run --spec shellcheck-py==0.11.0.1 shellcheck install.sh
+
+  # Builds and installs the Arch package the way install.sh does, from the checkout.
+  arch-package:
+    name: Arch package
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - run: pacman -Syu --noconfirm --needed git rust gtk4 libadwaita sqlite librsvg
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # pkgver() counts the commits
+      - name: makepkg as an unprivileged user
+        run: |
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && TANGO_GIT_URL='file://$GITHUB_WORKSPACE' makepkg --noconfirm"
+      - run: pacman -U --noconfirm packaging/arch/*.pkg.tar.zst && tango --version

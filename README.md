@@ -36,7 +36,6 @@ Offline, with English and German glosses side by side.
 - Example sentences from Tatoeba
 - Romaji input, deinflection of verbs and adjectives
 - FTS5 index for faster gloss search
-- Arch package (PKGBUILD) instead of `install.sh`
 
 Everything above plus the WaniKani, MaruMori, Kitsun.io and Takoboto
 integrations is tracked in the [issues](https://github.com/felsenuboot/tango/issues);
@@ -47,16 +46,18 @@ the order and the reasoning are in [docs/ROADMAP.md](docs/ROADMAP.md).
 Rust 1.85+, GTK 4.12+, libadwaita 1.5+, SQLite.
 
 ```
-# Arch
-sudo pacman -S --needed rust gtk4 libadwaita sqlite
-# Debian/Ubuntu: cargo libgtk-4-dev libadwaita-1-dev libsqlite3-dev
-
 git clone https://github.com/felsenuboot/tango.git
 cd tango
-./install.sh        # builds a release binary into ~/.local/bin and adds the desktop entry
+./install.sh
 ```
 
-Or just `cargo run` from the checkout.
+On Arch Linux that builds the `tango-git` package from the checkout
+(`packaging/arch/PKGBUILD`, following the Rust package guidelines) and installs
+it with pacman; `makepkg -si` in `packaging/arch` builds it from GitHub instead.
+Anywhere else it puts a release build into `~/.local/bin` with the desktop entry
+and icons (Debian/Ubuntu: `cargo libgtk-4-dev libadwaita-1-dev libsqlite3-dev`).
+Or just `cargo run` from the checkout. There is no Flatpak, and Flathub is not
+planned.
 
 ## Dictionaries and licences
 
