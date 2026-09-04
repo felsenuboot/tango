@@ -14,18 +14,35 @@ cargo run                                    # dev build against the real config
 | `src/main.rs` | entry point, application id, log setup |
 | `src/model.rs` | `Entry`, `Sense`, `Gloss`: the plain data everything else passes around |
 | `src/dict/jmdict.rs` | streaming JMdict XML reader, expands the DTD entities |
-| `src/dict/sources.rs` | download URLs and the download helper |
-| `src/store/db.rs` | SQLite schema, insert, load, search |
-| `src/store/import.rs` | the import jobs the UI runs on a worker thread |
+| `src/dict/sources.rs` | the source registry (id, name, URL, file, licence) and the download helper |
+| `src/store/db.rs` | SQLite schema (v2: `sources`, entries per source), insert, load, search |
+| `src/store/import.rs` | the import, download and remove jobs the UI runs on a worker thread |
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
 | `src/ui/entry_view.rs` | renders one entry |
 | `src/ui/import_dialog.rs` | progress dialog + worker thread + channel |
-| `src/ui/preferences.rs` | preferences dialog |
+| `src/ui/preferences.rs` | preferences dialog: General, and Dictionaries (installed sources) |
 | `src/ui/theme.rs` | colour scheme: follow the system, or force light / dark above the user's GTK CSS |
 | `src/config.rs` | JSON config in `~/.config/tango`, XDG paths |
 | `src/autopilot.rs` | scripted UI driving (below) |
 | `tests/fixtures/` | a six-entry JMdict sample the unit tests use |
+
+## The two kinds of data
+
+The dictionary database (`~/.local/share/tango/tango.sqlite`) is derived data:
+every row can be imported again from the downloads in `~/.cache/tango`. So a
+schema version bump (`SCHEMA_VERSION` in `src/store/db.rs`) does not migrate
+anything; `Database::open` drops the tables and the app shows the empty state
+with an "Import the downloaded copy" button. User data (word lists, issue #10)
+will live in its own file with real migrations, precisely so the dictionary
+file can stay disposable.
+
+Each source in `src/dict/sources.rs` is one row in `sources` (version as the
+file states it, import time, entry count) and owns its rows in `entries`
+through the `source` column; `(source, seq)` is unique, `seq` being the
+source's own number (JMdict `ent_seq`). Search takes the enabled sources in the
+order from the config file and ranks exact matches, then common words, then
+source order, then length.
 
 ## Environment variables
 

@@ -52,7 +52,7 @@ pub fn startup(app: &adw::Application) {
             .activate(|_: &adw::Application, _, _| show_about())
             .build(),
         gio::ActionEntry::builder("preferences")
-            .activate(|_: &adw::Application, _, _| with_window(preferences::show))
+            .activate(|_: &adw::Application, _, _| with_window(|w| preferences::show(w, None)))
             .build(),
     ];
     app.add_action_entries(actions);
@@ -85,6 +85,22 @@ pub fn activate(app: &adw::Application) {
     win.win.present();
 }
 
+/// 220412 → "220,412".
+pub fn thousands(n: i64) -> String {
+    let digits = n.abs().to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
+    if n < 0 {
+        out.push('-');
+    }
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn show_about() {
     let about = adw::AboutDialog::builder()
         .application_name(APP_NAME)
@@ -102,4 +118,16 @@ fn show_about() {
         Some("Creative Commons Attribution-ShareAlike 4.0\nhttps://www.edrdg.org/edrdg/licence.html"),
     );
     with_window(|w| about.present(Some(&w.win)));
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn thousands_separators() {
+        assert_eq!(super::thousands(0), "0");
+        assert_eq!(super::thousands(999), "999");
+        assert_eq!(super::thousands(1000), "1,000");
+        assert_eq!(super::thousands(220412), "220,412");
+        assert_eq!(super::thousands(-1234567), "-1,234,567");
+    }
 }

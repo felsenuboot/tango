@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use gtk::glib;
 use serde::{Deserialize, Serialize};
 
+use crate::dict::sources;
+
 const APP_DIR_NAME: &str = "tango";
 
 /// `#[serde(default)]` means a config file may omit any field, or be from an older version,
@@ -17,9 +19,18 @@ pub struct Config {
     pub gloss_languages: Vec<String>,
     /// "system" | "light" | "dark", see `ui::theme::Scheme`.
     pub color_scheme: String,
+    /// Dictionaries in search priority order. A known source missing here counts as enabled,
+    /// after the listed ones; see `source_settings`.
+    pub sources: Vec<SourceSetting>,
     pub window: WindowState,
     #[serde(skip)]
     path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceSetting {
+    pub id: String,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +56,7 @@ impl Default for Config {
         Self {
             gloss_languages: vec!["eng".into(), "ger".into()],
             color_scheme: "system".into(),
+            sources: Vec::new(),
             window: WindowState::default(),
             path: config_dir().join("config.json"),
         }
@@ -70,6 +82,52 @@ impl Config {
         };
         cfg.path = path;
         cfg
+    }
+
+    /// Every known source in priority order with its enabled flag: the listed ones first,
+    /// ids the registry does not know dropped, sources the file does not mention appended.
+    pub fn source_settings(&self) -> Vec<SourceSetting> {
+        let mut out: Vec<SourceSetting> = self
+            .sources
+            .iter()
+            .filter(|s| sources::by_id(&s.id).is_some())
+            .cloned()
+            .collect();
+        for source in sources::SOURCES {
+            if !out.iter().any(|s| s.id == source.id) {
+                out.push(SourceSetting {
+                    id: source.id.to_string(),
+                    enabled: true,
+                });
+            }
+        }
+        out
+    }
+
+    /// Ids of the sources search should look in, best first.
+    pub fn enabled_sources(&self) -> Vec<String> {
+        self.source_settings()
+            .into_iter()
+            .filter(|s| s.enabled)
+            .map(|s| s.id)
+            .collect()
+    }
+
+    pub fn set_source_enabled(&mut self, id: &str, enabled: bool) {
+        self.sources = self.source_settings();
+        if let Some(s) = self.sources.iter_mut().find(|s| s.id == id) {
+            s.enabled = enabled;
+        }
+    }
+
+    /// Moves a source one place up in the search order.
+    pub fn move_source_up(&mut self, id: &str) {
+        self.sources = self.source_settings();
+        if let Some(i) = self.sources.iter().position(|s| s.id == id)
+            && i > 0
+        {
+            self.sources.swap(i, i - 1);
+        }
     }
 
     /// Writes via a temp file and rename, so a crash mid-write never leaves a half config.
@@ -129,6 +187,26 @@ mod tests {
         assert_eq!(again.gloss_languages, ["ger", "eng"]);
         assert_eq!(again.window.width, 1100); // untouched fields keep their defaults
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn source_settings_cover_every_known_source() {
+        let mut cfg = Config::default();
+        let settings = cfg.source_settings();
+        assert_eq!(settings.len(), sources::SOURCES.len());
+        assert!(settings.iter().all(|s| s.enabled));
+        assert_eq!(cfg.enabled_sources()[0], "jmdict");
+
+        cfg.sources = vec![SourceSetting {
+            id: "gone".into(),
+            enabled: true,
+        }];
+        assert!(cfg.source_settings().iter().all(|s| s.id != "gone"));
+
+        cfg.set_source_enabled("jmdict", false);
+        assert!(cfg.enabled_sources().is_empty());
+        cfg.move_source_up("jmdict"); // first already: no-op, no panic
+        assert_eq!(cfg.source_settings()[0].id, "jmdict");
     }
 
     #[test]

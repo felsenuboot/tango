@@ -8,7 +8,8 @@
 //!   select <index>       select the result row at that index
 //!   import <path>        import a JMdict file (plain or .gz) into the database, in the background
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
-//!   preferences | about  open that dialog
+//!   preferences [general|dictionaries]   open the preferences, on that page
+//!   about                open the about dialog
 //!   menu                 open the primary menu (or close it, if open)
 //!   menustate            log the menu button's position and the popover's scroll metrics
 //!   resize <w> <h>       resize the main window
@@ -55,7 +56,7 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         "select" => win.select_result(arg.parse().unwrap_or(0)),
         "import" => win.import_file(PathBuf::from(arg)),
         "theme" => crate::ui::theme::apply(crate::ui::theme::Scheme::from_name(arg)),
-        "preferences" => app.activate_action("preferences", None),
+        "preferences" => crate::ui::preferences::show(&win, (!arg.is_empty()).then_some(arg)),
         "menu" => {
             // Toggles, so a script can close and reopen the menu.
             if win.menu_button.popover().is_some_and(|p| p.is_visible()) {

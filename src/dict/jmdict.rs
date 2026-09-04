@@ -30,6 +30,27 @@ pub fn open(path: &Path) -> anyhow::Result<Box<dyn BufRead>> {
     })
 }
 
+/// The date from the `<!-- JMdict created: 2026-09-04 -->` comment the file carries before its
+/// first entry; it serves as the version. Reads only the head of the file.
+pub fn created<R: BufRead>(input: R) -> anyhow::Result<Option<String>> {
+    let mut reader = Reader::from_reader(input);
+    let mut buf = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buf)? {
+            Event::Eof => return Ok(None),
+            Event::Comment(comment) => {
+                let text: &str = &comment;
+                if let Some(date) = text.trim().strip_prefix("JMdict created:") {
+                    return Ok(Some(date.trim().to_string()));
+                }
+            }
+            Event::Start(start) if start.name().as_ref() == "entry" => return Ok(None),
+            _ => {}
+        }
+        buf.clear();
+    }
+}
+
 /// Calls `f` for every `<entry>` as soon as it is complete; returns how many there were.
 /// Streaming keeps memory flat: the full JMdict is ~200k entries and we never hold them all.
 pub fn for_each_entry<R: BufRead>(
@@ -231,6 +252,15 @@ mod tests {
         assert_eq!(
             amp.senses[0].gloss_text("eng"),
             "cat (archaic reading, for the test) & more"
+        );
+    }
+
+    #[test]
+    fn created_comment_is_the_version() {
+        assert_eq!(created(SAMPLE.as_bytes()).unwrap().as_deref(), Some("2024-01-01"));
+        assert_eq!(
+            created("<JMdict><entry></entry></JMdict>".as_bytes()).unwrap(),
+            None
         );
     }
 

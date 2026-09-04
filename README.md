@@ -20,6 +20,9 @@ Offline, with English and German glosses side by side.
   or German word for a gloss lookup. Exact matches and common words come first.
 - **Entries.** Headword, readings, alternative spellings, every sense with its
   parts of speech and the glosses per language, in the order you prefer.
+- **Dictionaries page.** Preferences lists every source with its version,
+  import date and entry count, with update, remove and a search toggle per
+  dictionary. Today that is JMdict; the roadmap adds the others.
 - Adaptive layout (sidebar collapses on narrow windows), light and dark theme (follow the system or force one),
   keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+I` import, `Ctrl+,` preferences).
 
@@ -35,7 +38,8 @@ Offline, with English and German glosses side by side.
 - Arch package (PKGBUILD) instead of `install.sh`
 
 Everything above plus the WaniKani, MaruMori, Kitsun.io and Takoboto
-integrations is tracked in the [issues](https://github.com/felsenuboot/tango/issues).
+integrations is tracked in the [issues](https://github.com/felsenuboot/tango/issues);
+the order and the reasoning are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 

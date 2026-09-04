@@ -24,6 +24,12 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   which GTK loads above app CSS, so the forced schemes re-declare libadwaita's
   named colours one priority above user CSS (`src/ui/theme.rs`).
 
+- **The dictionary database is disposable, user data is not.** A schema bump
+  drops and recreates `tango.sqlite` (re-import from the cache); word lists and
+  the like go into their own file with migrations (issue #10).
+- **Roadmap order is in `docs/ROADMAP.md`** and as GitHub milestones 0.2–0.6.
+  Work them in that order unless Felix says otherwise.
+
 ## Working here
 
 - `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt`
@@ -40,7 +46,7 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
 
 ## Roadmap
 
-Wadoku (German, pitch accent), kanji view (KANJIDIC, KanjiVG, radicals),
-Tatoeba examples, romaji input and deinflection, FTS5, Arch PKGBUILD.
-Integrations: Jisho feature parity, WaniKani, MaruMori, Kitsun.io, Takoboto.
-Tracked as GitHub issues #2–#15.
+Milestones on GitHub, details in `docs/ROADMAP.md`: 0.2 Solid JMdict (#2 #3
+#9), 0.3 Search (#7 #16 #8), 0.4 Lists (#10 #14 #15), 0.5 More dictionaries
+(#4 #5 #6 #17 #18 #19 #20), 0.6 Accounts (#11 #12). #13 is the Jisho-parity
+umbrella; #16–#20 are its sub-issues.

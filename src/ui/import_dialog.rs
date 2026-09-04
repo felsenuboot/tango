@@ -14,13 +14,13 @@ use crate::store::import::Report;
 
 enum Progress {
     Status(String, Option<f64>),
-    Finished(Result<usize, String>),
+    Finished(Result<String, String>),
 }
 
 pub fn run(
     parent: &adw::ApplicationWindow,
-    job: impl FnOnce(Report) -> anyhow::Result<usize> + Send + 'static,
-    on_done: impl FnOnce(Result<usize, String>) + 'static,
+    job: impl FnOnce(Report) -> anyhow::Result<String> + Send + 'static,
+    on_done: impl FnOnce(Result<String, String>) + 'static,
 ) {
     let label = gtk::Label::builder()
         .label("Starting…")
@@ -94,7 +94,7 @@ pub fn run(
                     dialog.set_can_close(true);
                     dialog.close();
                     if let Err(ref e) = result {
-                        log::error!("import failed: {e}");
+                        log::error!("job failed: {e}");
                     }
                     if let Some(done) = on_done.take() {
                         done(result);

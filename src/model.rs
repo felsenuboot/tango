@@ -35,7 +35,9 @@ impl Sense {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Entry {
-    /// JMdict `ent_seq`.
+    /// `dict::sources::Source::id` this entry came from.
+    pub source: String,
+    /// The source's own number: JMdict `ent_seq`.
     pub id: i64,
     pub kanji: Vec<String>,
     pub readings: Vec<String>,

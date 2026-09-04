@@ -10,8 +10,10 @@ use gtk::{gio, glib, glib::clone};
 
 use super::entry_view::EntryView;
 use super::import_dialog;
+use super::thousands;
 use crate::APP_NAME;
 use crate::config::{Config, cache_dir};
+use crate::dict::sources::{self, Source};
 use crate::model::Entry;
 use crate::store::db::Database;
 use crate::store::import;
@@ -23,6 +25,8 @@ pub struct Window {
     pub win: adw::ApplicationWindow,
     pub search: gtk::SearchEntry,
     pub menu_button: gtk::MenuButton,
+    /// "Import the downloaded copy" on the empty state, shown when the cache has a JMdict file.
+    import_cached: gtk::Button,
     config: Rc<RefCell<Config>>,
     db: Rc<Database>,
     db_path: PathBuf,
@@ -114,18 +118,30 @@ impl Window {
             .build();
         let no_dictionary = adw::StatusPage::builder()
             .title("No dictionary yet")
-            .description(
-                "Tango needs the JMdict file from the EDRDG. It is about 25 MB and imports in a moment.",
-            )
+            .description(format!(
+                "Tango needs the JMdict file from the EDRDG. It is about {} MB and imports in a moment.",
+                sources::JMDICT.size_mb
+            ))
             .icon_name("folder-download-symbolic")
             .vexpand(true)
             .build();
         let download = gtk::Button::builder()
             .label("Download JMdict")
-            .halign(gtk::Align::Center)
             .css_classes(["pill", "suggested-action"])
             .build();
-        no_dictionary.set_child(Some(&download));
+        let import_cached = gtk::Button::builder()
+            .label("Import the downloaded copy")
+            .css_classes(["pill"])
+            .visible(false)
+            .build();
+        let actions = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(12)
+            .halign(gtk::Align::Center)
+            .build();
+        actions.append(&download);
+        actions.append(&import_cached);
+        no_dictionary.set_child(Some(&actions));
         let stack = gtk::Stack::builder()
             .transition_type(gtk::StackTransitionType::Crossfade)
             .build();
@@ -157,6 +173,7 @@ impl Window {
             win,
             search,
             menu_button,
+            import_cached,
             config,
             db,
             db_path,
@@ -194,7 +211,12 @@ impl Window {
         download.connect_clicked(clone!(
             #[weak]
             this,
-            move |_| this.download_jmdict()
+            move |_| this.download_source(&sources::JMDICT, || {})
+        ));
+        this.import_cached.connect_clicked(clone!(
+            #[weak]
+            this,
+            move |_| this.import_file(cache_dir().join(sources::JMDICT.filename))
         ));
         let search_action = gio::SimpleAction::new("search", None);
         search_action.connect_activate(clone!(
@@ -209,7 +231,7 @@ impl Window {
         import_action.connect_activate(clone!(
             #[weak]
             this,
-            move |_, _| this.choose_import_file()
+            move |_, _| this.choose_import_file(&sources::JMDICT, || {})
         ));
         this.win.add_action(&import_action);
         this.win.connect_close_request(clone!(
@@ -236,6 +258,8 @@ impl Window {
 
     fn refresh_state(&self) {
         let count = self.db.entry_count().unwrap_or(0);
+        self.import_cached
+            .set_visible(cache_dir().join(sources::JMDICT.filename).exists());
         if count == 0 {
             self.stack.set_visible_child_name("no-dictionary");
         } else if self.current.borrow().is_none() {
@@ -245,6 +269,10 @@ impl Window {
 
     pub fn config(&self) -> &Rc<RefCell<Config>> {
         &self.config
+    }
+
+    pub fn db(&self) -> &Rc<Database> {
+        &self.db
     }
 
     pub fn result_count(&self) -> usize {
@@ -271,8 +299,15 @@ impl Window {
         self.search_timer.set(Some(id));
     }
 
+    /// Runs the current search again, e.g. after the dictionaries changed.
+    pub fn refresh_search(&self) {
+        let query = self.search.text().to_string();
+        self.run_search(&query);
+    }
+
     fn run_search(&self, query: &str) {
-        let entries = match self.db.search(query, RESULT_LIMIT) {
+        let enabled = self.config.borrow().enabled_sources();
+        let entries = match self.db.search(query, RESULT_LIMIT, &enabled) {
             Ok(entries) => entries,
             Err(e) => {
                 log::error!("search failed: {e:#}");
@@ -324,57 +359,99 @@ impl Window {
 
     // -- import -----------------------------------------------------------------------------
 
-    pub fn download_jmdict(self: &Rc<Self>) {
+    /// Downloads `source` into the cache and imports it, replacing what the database had of it.
+    /// `after` runs on the main thread once the job is done, success or not.
+    pub fn download_source(self: &Rc<Self>, source: &'static Source, after: impl FnOnce() + 'static) {
         let path = self.db_path.clone();
         let cache = cache_dir();
-        self.run_import(move |report| {
-            let db = Database::open(&path)?;
-            import::download_and_import_jmdict(&db, &cache, report)
-        });
+        self.run_job(
+            move |report| {
+                let db = Database::open(&path)?;
+                let n = import::download_and_import(&db, source, &cache, report)?;
+                Ok(format!(
+                    "Imported {} {} entries",
+                    thousands(n as i64),
+                    source.name
+                ))
+            },
+            after,
+        );
     }
 
+    /// Imports a local JMdict file: the menu action, the autopilot `import` step, the cached copy.
     pub fn import_file(self: &Rc<Self>, file: PathBuf) {
-        let path = self.db_path.clone();
-        self.run_import(move |report| {
-            let db = Database::open(&path)?;
-            import::import_jmdict(&db, &file, report)
-        });
+        self.import_source_file(&sources::JMDICT, file, || {});
     }
 
-    fn run_import(
+    pub fn import_source_file(
         self: &Rc<Self>,
-        job: impl FnOnce(import::Report) -> anyhow::Result<usize> + Send + 'static,
+        source: &'static Source,
+        file: PathBuf,
+        after: impl FnOnce() + 'static,
+    ) {
+        let path = self.db_path.clone();
+        self.run_job(
+            move |report| {
+                let db = Database::open(&path)?;
+                let n = import::import_file(&db, source, &file, report)?;
+                Ok(format!(
+                    "Imported {} {} entries",
+                    thousands(n as i64),
+                    source.name
+                ))
+            },
+            after,
+        );
+    }
+
+    pub fn remove_source(self: &Rc<Self>, source: &'static Source, after: impl FnOnce() + 'static) {
+        let path = self.db_path.clone();
+        let cache = cache_dir();
+        self.run_job(
+            move |report| {
+                let db = Database::open(&path)?;
+                import::remove(&db, source, &cache, report)?;
+                Ok(format!("Removed {}", source.name))
+            },
+            after,
+        );
+    }
+
+    /// Runs a job on the worker thread behind the progress dialog; the job's `Ok` text becomes a
+    /// toast. Then the window state and the search are refreshed and `after` runs.
+    fn run_job(
+        self: &Rc<Self>,
+        job: impl FnOnce(import::Report) -> anyhow::Result<String> + Send + 'static,
+        after: impl FnOnce() + 'static,
     ) {
         let this = Rc::downgrade(self);
         import_dialog::run(&self.win, job, move |result| {
             let Some(this) = this.upgrade() else { return };
             match result {
-                Ok(n) => this
-                    .toasts
-                    .add_toast(adw::Toast::new(&format!("Imported {n} entries"))),
+                Ok(message) => this.toasts.add_toast(adw::Toast::new(&message)),
                 Err(e) => {
-                    let toast = adw::Toast::new(&format!("Import failed: {e}"));
+                    let toast = adw::Toast::new(&format!("Failed: {e}"));
                     toast.set_timeout(0);
                     this.toasts.add_toast(toast);
                 }
             }
             *this.current.borrow_mut() = None;
             this.refresh_state();
-            let query = this.search.text().to_string();
-            this.run_search(&query);
+            this.refresh_search();
+            after();
         });
     }
 
-    fn choose_import_file(self: &Rc<Self>) {
+    pub fn choose_import_file(self: &Rc<Self>, source: &'static Source, after: impl FnOnce() + 'static) {
         let filter = gtk::FileFilter::new();
-        filter.set_name(Some("JMdict XML"));
+        filter.set_name(Some(&format!("{} file", source.name)));
         filter.add_pattern("*.xml");
         filter.add_pattern("*.gz");
-        filter.add_pattern("JMdict*");
+        filter.add_pattern(&format!("{}*", source.name));
         let filters = gio::ListStore::new::<gtk::FileFilter>();
         filters.append(&filter);
         let dialog = gtk::FileDialog::builder()
-            .title("Import JMdict")
+            .title(format!("Import {}", source.name))
             .filters(&filters)
             .build();
         let this = Rc::downgrade(self);
@@ -382,7 +459,7 @@ impl Window {
             if let (Ok(file), Some(this)) = (result, this.upgrade())
                 && let Some(path) = file.path()
             {
-                this.import_file(path);
+                this.import_source_file(source, path, after);
             }
         });
     }
