@@ -44,7 +44,10 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   syntax error there, so drive the app through `TANGO_AUTOPILOT` instead.
 - Hyprland shrinks popups of fullscreen windows by the top bar's reserved strip
   (see `docs/DEVELOPMENT.md`); `window.rs` has the workaround.
-- Commit and push at sensible milestones; the repo stays private.
+- One issue → one branch (`<issue>-<slug>`) → one pull request (`Closes #N`,
+  milestone set) → squash-merge with the subject `area: what (#N)`. Master
+  has a ruleset: no direct pushes, CI must be green. Milestone done → bump
+  `Cargo.toml`, tag `vX.Y.0`, GitHub release. Details: `docs/DEVELOPMENT.md`.
 - Session transcripts live in `docs/sessions/`.
 
 ## Roadmap

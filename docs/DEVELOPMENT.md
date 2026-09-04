@@ -7,6 +7,40 @@ cargo fmt
 cargo run                                    # dev build against the real config and database
 ```
 
+## Working on an issue
+
+Master is always releasable; nothing lands on it without a pull request and a
+green CI (a repository ruleset enforces that, tags are free).
+
+1. Every change starts from an issue. No issue yet? Open one, even a one-liner,
+   and put it in a milestone.
+2. Branch from master, named `<issue>-<slug>`, e.g. `7-romaji-deinflection`.
+3. Commit subjects name the area and the issue: `search: romaji input and
+   deinflection (#7)`. Bodies say why. The `Claude-Session` trailer stays.
+4. Open the pull request with `Closes #<issue>` in the body and the issue's
+   milestone. Squash-merge it with the subject from step 3, so master carries
+   one commit per issue and every commit traces to an issue and a milestone.
+5. Sessions live in `docs/sessions/`; screenshots that document a change go
+   into the pull request.
+
+## Releasing
+
+Milestones are minor versions: `0.3 Search` ships as `v0.3.0`. When the last
+issue of a milestone closes:
+
+```
+# on a branch, like any change
+sed -i 's/^version = ".*"/version = "0.3.0"/' Cargo.toml && cargo check
+git commit -am "Release 0.3.0"           # pull request, squash-merge
+git tag -a v0.3.0 -m "Tango 0.3.0" <merge commit> && git push origin v0.3.0
+gh release create v0.3.0 --generate-notes --notes-start-tag v0.2.0 --title "Tango 0.3.0"
+```
+
+Then edit the generated notes to start with two or three sentences of what
+the release means to a user, and close the milestone. Fixes between milestones
+go out as patch releases (`v0.3.1`). The Arch package takes its version from
+`Cargo.toml` plus the commit count, so the tag is not needed for it.
+
 ## Where things live
 
 | Path | What |
