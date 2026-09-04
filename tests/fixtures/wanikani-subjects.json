@@ -1,0 +1,22 @@
+{
+  "object": "collection",
+  "url": "https://api.wanikani.com/v2/subjects?types=kanji,vocabulary,kana_vocabulary",
+  "pages": { "per_page": 1000, "next_url": "https://api.wanikani.com/v2/subjects?page_after_id=1000", "previous_url": null },
+  "total_count": 4,
+  "data_updated_at": "2026-09-01T10:00:00.000000Z",
+  "data": [
+    { "id": 1, "object": "radical", "url": "https://api.wanikani.com/v2/subjects/1", "data_updated_at": "2026-01-01T00:00:00.000000Z",
+      "data": { "level": 1, "characters": "一", "slug": "ground", "hidden_at": null, "meanings": [{ "meaning": "Ground", "primary": true, "accepted_answer": true }] } },
+    { "id": 440, "object": "kanji", "url": "https://api.wanikani.com/v2/subjects/440", "data_updated_at": "2026-01-01T00:00:00.000000Z",
+      "data": { "level": 1, "characters": "一", "slug": "一", "hidden_at": null,
+        "meanings": [{ "meaning": "One", "primary": true, "accepted_answer": true }],
+        "readings": [{ "type": "onyomi", "primary": true, "reading": "いち", "accepted_answer": true }] } },
+    { "id": 2467, "object": "vocabulary", "url": "https://api.wanikani.com/v2/subjects/2467", "data_updated_at": "2026-01-01T00:00:00.000000Z",
+      "data": { "level": 6, "characters": "食べる", "slug": "食べる", "hidden_at": null,
+        "meanings": [{ "meaning": "To Eat", "primary": true, "accepted_answer": true }],
+        "readings": [{ "primary": true, "reading": "たべる", "accepted_answer": true }] } },
+    { "id": 9000, "object": "kana_vocabulary", "url": "https://api.wanikani.com/v2/subjects/9000", "data_updated_at": "2026-01-01T00:00:00.000000Z",
+      "data": { "level": 2, "characters": "こんにちは", "slug": "こんにちは", "hidden_at": "2026-02-01T00:00:00.000000Z",
+        "meanings": [{ "meaning": "Hello", "primary": true, "accepted_answer": true }] } }
+  ]
+}

@@ -44,8 +44,9 @@ ranking. #7, #16 and #8 are three steps of one piece of work.
 - #20 external links and the optional online fallback
 
 ### 0.6 Accounts
-- #11 WaniKani and #12 MaruMori as two providers of one learned-items model,
-  with an Accounts page and secret storage
+- #11 WaniKani: token in the keyring (libsecret), incremental sync into the
+  provider-independent `learned` table of the user database, chips and
+  `#known` filters; #12 MaruMori as the second provider once its API is known
 - Kitsun sync (#15) when its API exists
 
 ## Decisions taken

@@ -18,7 +18,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   # The GTK/libadwaita dev packages the crates link against (GTK 4.14, libadwaita 1.5 on 24.04).
-  APT_DEPS: libgtk-4-dev libadwaita-1-dev libsqlite3-dev liblzma-dev
+  APT_DEPS: libgtk-4-dev libadwaita-1-dev libsqlite3-dev liblzma-dev libsecret-1-dev
 
 jobs:
   fmt:
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     steps:
-      - run: pacman -Syu --noconfirm --needed git rust gtk4 libadwaita sqlite librsvg xz
+      - run: pacman -Syu --noconfirm --needed git rust gtk4 libadwaita sqlite librsvg xz libsecret
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

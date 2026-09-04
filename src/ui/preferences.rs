@@ -1,5 +1,6 @@
-//! The preferences dialog: a General page (appearance, glosses) and a Dictionaries page that lists
-//! every source Tango knows, installed or not, with update, remove and search toggles.
+//! The preferences dialog: a General page (appearance, glosses), a Dictionaries page that lists
+//! every source Tango knows, installed or not, with update, remove and search toggles, and an
+//! Accounts page for the learning sites (WaniKani).
 
 use std::rc::Rc;
 
@@ -19,6 +20,7 @@ pub fn show(win: &Rc<Window>, page: Option<&str>) {
     let dialog = adw::PreferencesDialog::builder().title("Preferences").build();
     dialog.add(&general_page(win));
     dialog.add(&dictionaries_page(win));
+    dialog.add(&accounts_page(win));
     if let Some(name) = page {
         dialog.set_visible_page_name(name);
     }
@@ -89,6 +91,160 @@ fn general_page(win: &Rc<Window>) -> adw::PreferencesPage {
     });
     glosses.add(&first);
     page
+}
+
+fn accounts_page(win: &Rc<Window>) -> adw::PreferencesPage {
+    let page = adw::PreferencesPage::builder()
+        .title("Accounts")
+        .name("accounts")
+        .icon_name("system-users-symbolic")
+        .build();
+    let group = adw::PreferencesGroup::builder()
+        .title("WaniKani")
+        .description(
+            "Shows the level and SRS stage of words and kanji you learn on WaniKani, and adds the \
+             #known, #unknown, #kanji-known and #wk-level-N filters. The token stays in the keyring; \
+             a read-only personal access token from wanikani.com/settings/personal_access_tokens is \
+             enough.",
+        )
+        .build();
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .build();
+    group.add(&list);
+    page.add(&group);
+    rebuild_wanikani(&list, win);
+    // The rows follow the job queue: buttons off and a status line while a job runs.
+    let weak_list = list.downgrade();
+    let weak_win = Rc::downgrade(win);
+    win.jobs()
+        .connect(move || match (weak_list.upgrade(), weak_win.upgrade()) {
+            (Some(list), Some(win)) => {
+                rebuild_wanikani(&list, &win);
+                true
+            }
+            _ => false,
+        });
+    page
+}
+
+/// The WaniKani rows: token entry and Connect when nobody is connected; otherwise who it is,
+/// the sync state, Sync now, Disconnect, and the "show on entries" switch.
+fn rebuild_wanikani(list: &gtk::ListBox, win: &Rc<Window>) {
+    list.remove_all();
+    let state = win.jobs().state("wanikani");
+    let busy = state != State::Idle;
+    let (weak_list, weak_win) = (list.downgrade(), Rc::downgrade(win));
+    let rebuild = move || {
+        let (list, win) = (weak_list.clone(), weak_win.clone());
+        move || {
+            if let (Some(list), Some(win)) = (list.upgrade(), win.upgrade()) {
+                rebuild_wanikani(&list, &win);
+            }
+        }
+    };
+    let status_line = match &state {
+        State::Idle => None,
+        State::Queued => Some("Queued…".to_string()),
+        State::Running { message, .. } => Some(message.clone()),
+    };
+    match win.wanikani_status() {
+        Some(status) => {
+            let synced = match &status.last_sync {
+                Some(t) => format!("synced {}", t.get(..16).unwrap_or(t).replace('T', " ")),
+                None => "not synced yet".to_string(),
+            };
+            let row = adw::ActionRow::builder()
+                .title(format!("Connected as {}", status.username))
+                .subtitle(status_line.clone().unwrap_or_else(|| {
+                    format!(
+                        "Level {} · {} items · {synced}",
+                        status.level,
+                        thousands(status.items as i64)
+                    )
+                }))
+                .build();
+            let sync = gtk::Button::builder()
+                .label("Sync now")
+                .valign(gtk::Align::Center)
+                .sensitive(!busy)
+                .build();
+            sync.connect_clicked(clone!(
+                #[weak]
+                win,
+                #[strong]
+                rebuild,
+                move |_| win.sync_wanikani(rebuild())
+            ));
+            row.add_suffix(&sync);
+            let disconnect = gtk::Button::builder()
+                .icon_name("user-trash-symbolic")
+                .css_classes(["flat"])
+                .tooltip_text("Disconnect and forget everything synced from WaniKani")
+                .valign(gtk::Align::Center)
+                .sensitive(!busy)
+                .build();
+            disconnect.connect_clicked(clone!(
+                #[weak]
+                win,
+                #[strong]
+                rebuild,
+                move |_| win.disconnect_wanikani(rebuild())
+            ));
+            row.add_suffix(&disconnect);
+            list.append(&row);
+            let show = adw::SwitchRow::builder()
+                .title("Show on entries")
+                .subtitle("Level and stage chips on entries and kanji pages")
+                .active(win.config().borrow().show_wanikani)
+                .build();
+            show.connect_active_notify(clone!(
+                #[weak]
+                win,
+                move |row| {
+                    {
+                        let mut cfg = win.config().borrow_mut();
+                        cfg.show_wanikani = row.is_active();
+                        cfg.save();
+                    }
+                    win.rerender();
+                }
+            ));
+            list.append(&show);
+        }
+        None => {
+            let token = adw::PasswordEntryRow::builder()
+                .title("API token")
+                .sensitive(!busy)
+                .build();
+            let connect = gtk::Button::builder()
+                .label("Connect")
+                .valign(gtk::Align::Center)
+                .sensitive(!busy)
+                .css_classes(["suggested-action"])
+                .build();
+            connect.connect_clicked(clone!(
+                #[weak]
+                win,
+                #[weak]
+                token,
+                #[strong]
+                rebuild,
+                move |_| {
+                    let text = token.text().trim().to_string();
+                    if !text.is_empty() {
+                        win.connect_wanikani(text, rebuild());
+                    }
+                }
+            ));
+            token.add_suffix(&connect);
+            list.append(&token);
+            if let Some(line) = status_line {
+                list.append(&adw::ActionRow::builder().title(line).build());
+            }
+        }
+    }
 }
 
 fn dictionaries_page(win: &Rc<Window>) -> adw::PreferencesPage {

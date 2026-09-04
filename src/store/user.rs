@@ -4,17 +4,22 @@
 //! A list entry remembers the entry's headword, reading and first gloss, so a list still reads
 //! after the dictionary file was rebuilt or a source removed, and so exports need no lookup.
 
+use std::collections::HashMap;
+
+use crate::accounts::wanikani::{Assignment, Subject};
+use crate::accounts::{Kind, Learned};
 use std::path::Path;
 
 use anyhow::Context;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde::{Deserialize, Serialize};
 
 use crate::model::Entry;
 use crate::store::now_iso8601;
 
 /// One statement batch per version; `PRAGMA user_version` says how many have run.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
 CREATE TABLE lists (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -33,7 +38,45 @@ CREATE TABLE list_entries (
     PRIMARY KEY (list_id, source, seq)
 );
 CREATE INDEX list_entries_word ON list_entries(source, seq);
-"];
+",
+    "
+-- Accounts (issue #11): what WaniKani reports, and the provider-independent `learned` rows
+-- built from it that the entry view and the #known filters read.
+CREATE TABLE wk_subjects (
+    id INTEGER PRIMARY KEY,         -- WaniKani's subject number
+    kind TEXT NOT NULL,             -- 'kanji' | 'vocabulary'
+    text TEXT NOT NULL,             -- the characters
+    level INTEGER NOT NULL,
+    hidden INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE wk_assignments (
+    subject_id INTEGER PRIMARY KEY,
+    stage INTEGER NOT NULL,         -- SRS stage 0..9
+    started TEXT,
+    passed TEXT,
+    burned TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE learned (
+    provider TEXT NOT NULL,         -- 'wanikani', later 'marumori'
+    kind TEXT NOT NULL,
+    text TEXT NOT NULL,
+    level INTEGER NOT NULL,
+    stage INTEGER NOT NULL,         -- on WaniKani's 0..9 scale
+    PRIMARY KEY (provider, kind, text)
+);
+CREATE INDEX learned_text ON learned(text);
+CREATE TABLE sync_state (
+    provider TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (provider, key)
+);
+",
+];
+
+/// `(kind, text)` → `(level, stage)`; see `UserDb::learned_index`.
+pub type LearnedIndex = HashMap<(Kind, String), (u32, u8)>;
 
 pub const FAVOURITES: &str = "Favourites";
 
@@ -102,6 +145,159 @@ impl UserDb {
             self.create_list(FAVOURITES)?;
         }
         Ok(())
+    }
+
+    // -- accounts ---------------------------------------------------------------------------
+
+    pub fn upsert_wk_subjects(&self, subjects: &[Subject]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT OR REPLACE INTO wk_subjects (id, kind, text, level, hidden) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )?;
+            for s in subjects {
+                ins.execute(params![s.id, s.kind.as_str(), s.text, s.level, s.hidden])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn upsert_wk_assignments(&self, assignments: &[Assignment]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT OR REPLACE INTO wk_assignments (subject_id, stage, started, passed, burned, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            )?;
+            for a in assignments {
+                ins.execute(params![
+                    a.subject_id,
+                    a.stage,
+                    a.started,
+                    a.passed,
+                    a.burned,
+                    a.hidden
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Rebuilds WaniKani's `learned` rows from the subjects and assignments: every visible
+    /// subject, with its assignment's stage or 0 (locked) without one. Returns the row count.
+    pub fn rebuild_learned_wanikani(&self) -> anyhow::Result<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM learned WHERE provider = 'wanikani'", [])?;
+        let n = tx.execute(
+            "INSERT OR REPLACE INTO learned (provider, kind, text, level, stage)
+             SELECT 'wanikani', s.kind, s.text, s.level, coalesce(a.stage, 0)
+             FROM wk_subjects s LEFT JOIN wk_assignments a ON a.subject_id = s.id AND a.hidden = 0
+             WHERE s.hidden = 0 ORDER BY coalesce(a.stage, 0)",
+            [],
+        )?;
+        tx.commit()?;
+        Ok(n)
+    }
+
+    pub fn sync_state(&self, provider: &str, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM sync_state WHERE provider = ?1 AND key = ?2",
+                params![provider, key],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn set_sync_state(&self, provider: &str, key: &str, value: &str) -> anyhow::Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO sync_state (provider, key, value) VALUES (?1, ?2, ?3)",
+            params![provider, key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Everything a provider stored: its learned rows, its raw tables, its sync cursors.
+    pub fn clear_provider(&self, provider: &str) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM learned WHERE provider = ?1", params![provider])?;
+        tx.execute("DELETE FROM sync_state WHERE provider = ?1", params![provider])?;
+        if provider == "wanikani" {
+            tx.execute_batch("DELETE FROM wk_assignments; DELETE FROM wk_subjects;")?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn learned_count(&self, provider: &str) -> anyhow::Result<usize> {
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM learned WHERE provider = ?1",
+            params![provider],
+            |r| r.get(0),
+        )?;
+        Ok(n as usize)
+    }
+
+    /// The learned rows for any of `texts` (a headword, its forms, single kanji), any provider.
+    pub fn learned_for(&self, texts: &[String]) -> anyhow::Result<Vec<Learned>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let marks = vec!["?"; texts.len()].join(",");
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT provider, kind, text, level, stage FROM learned WHERE text IN ({marks})
+             ORDER BY provider, kind, text"
+        ))?;
+        let rows = stmt.query_map(params_from_iter(texts.iter()), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (provider, kind, text, level, stage) = row?;
+            if let Some(kind) = Kind::parse(&kind) {
+                out.push(Learned {
+                    provider,
+                    kind,
+                    text,
+                    level: level as u32,
+                    stage: stage as u8,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every learned item by kind and text, `(level, stage)`, for the search filters. The best
+    /// stage wins when two providers know the same item.
+    pub fn learned_index(&self) -> anyhow::Result<LearnedIndex> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT kind, text, level, stage FROM learned ORDER BY stage")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut index = LearnedIndex::new();
+        for row in rows {
+            let (kind, text, level, stage) = row?;
+            if let Some(kind) = Kind::parse(&kind) {
+                index.insert((kind, text), (level as u32, stage as u8));
+            }
+        }
+        Ok(index)
     }
 
     // -- lists ------------------------------------------------------------------------------

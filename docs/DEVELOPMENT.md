@@ -67,6 +67,8 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
 | `src/ui/entry_view.rs` | renders one entry |
+| `src/accounts/` | learning sites: `wanikani.rs` (API v2 client, sync into the user database), the shared `Learned` model |
+| `src/secrets.rs` | API tokens in the keyring through libsecret; `TANGO_<PROVIDER>_TOKEN` stands in headless |
 | `src/ui/jobs.rs` | the job queue: one worker thread, downloads/imports/removals one after the other, progress through a channel |
 | `src/ui/preferences.rs` | preferences dialog: General, and Dictionaries (installed sources) |
 | `src/ui/lists.rs` | the Lists sidebar page: lists, one list's entries, rename/delete/export/import |

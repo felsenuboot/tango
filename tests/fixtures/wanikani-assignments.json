@@ -1,0 +1,17 @@
+{
+  "object": "collection",
+  "url": "https://api.wanikani.com/v2/assignments?subject_types=kanji,vocabulary,kana_vocabulary",
+  "pages": { "per_page": 500, "next_url": null, "previous_url": null },
+  "total_count": 2,
+  "data_updated_at": "2026-09-01T11:00:00.000000Z",
+  "data": [
+    { "id": 80463006, "object": "assignment", "url": "https://api.wanikani.com/v2/assignments/80463006", "data_updated_at": "2024-05-01T00:00:00.000000Z",
+      "data": { "created_at": "2023-01-01T00:00:00.000000Z", "subject_id": 440, "subject_type": "kanji", "srs_stage": 9,
+        "unlocked_at": "2023-01-01T00:00:00.000000Z", "started_at": "2023-01-02T00:00:00.000000Z", "passed_at": "2023-01-10T00:00:00.000000Z",
+        "burned_at": "2024-05-01T00:00:00.000000Z", "available_at": null, "resurrected_at": null, "hidden": false } },
+    { "id": 80463007, "object": "assignment", "url": "https://api.wanikani.com/v2/assignments/80463007", "data_updated_at": "2026-08-01T00:00:00.000000Z",
+      "data": { "created_at": "2026-07-01T00:00:00.000000Z", "subject_id": 2467, "subject_type": "vocabulary", "srs_stage": 5,
+        "unlocked_at": "2026-07-01T00:00:00.000000Z", "started_at": "2026-07-02T00:00:00.000000Z", "passed_at": "2026-08-01T00:00:00.000000Z",
+        "burned_at": null, "available_at": "2026-09-10T00:00:00.000000Z", "resurrected_at": null, "hidden": false } }
+  ]
+}

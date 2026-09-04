@@ -15,8 +15,10 @@ pub mod romaji;
 
 use std::collections::HashSet;
 
+use crate::accounts::{Kind, is_known};
 use crate::model::{Entry, Sentence};
 use crate::store::db::{Database, is_japanese};
+use crate::store::user::LearnedIndex;
 
 /// One result: the entry, and how the query led to it when that is not obvious.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,16 +40,18 @@ pub struct Outcome {
     pub hint: Option<String>,
 }
 
-struct Hits {
+struct Hits<'a> {
     list: Vec<Hit>,
     seen: HashSet<(String, i64)>,
     tags: Vec<query::Tag>,
     group: Option<String>,
+    /// What the learning accounts know, for `#known` and friends.
+    learned: &'a LearnedIndex,
 }
 
-impl Hits {
+impl Hits<'_> {
     fn push(&mut self, entry: Entry, note: Option<String>) {
-        if !self.tags.iter().all(|t| matches(&entry, *t)) {
+        if !self.tags.iter().all(|t| matches(&entry, *t, self.learned)) {
             return;
         }
         if self.seen.insert((entry.source.clone(), entry.id)) {
@@ -60,7 +64,18 @@ impl Hits {
     }
 }
 
-fn matches(entry: &Entry, tag: query::Tag) -> bool {
+/// The best `(level, stage)` a learning account has for the word: any of its forms as
+/// vocabulary.
+fn learned_word(entry: &Entry, learned: &LearnedIndex) -> Option<(u32, u8)> {
+    entry
+        .kanji
+        .iter()
+        .chain(&entry.readings)
+        .filter_map(|form| learned.get(&(Kind::Vocabulary, form.clone())).copied())
+        .max_by_key(|(_, stage)| *stage)
+}
+
+fn matches(entry: &Entry, tag: query::Tag, learned: &LearnedIndex) -> bool {
     match tag {
         query::Tag::Common => entry.common,
         query::Tag::Pos(part) => entry.senses.iter().flat_map(|s| &s.pos).any(|p| p.contains(part)),
@@ -71,16 +86,35 @@ fn matches(entry: &Entry, tag: query::Tag) -> bool {
             .any(|m| m.contains(part)),
         query::Tag::Sentences | query::Tag::Names => true,
         query::Tag::Jlpt(level) => entry.jlpt == Some(level),
+        query::Tag::Known(wanted) => {
+            learned_word(entry, learned).is_some_and(|(_, stage)| is_known(stage)) == wanted
+        }
+        query::Tag::WkLevel(level) => learned_word(entry, learned).is_some_and(|(l, _)| l == level),
+        query::Tag::KanjiKnown => {
+            let kanji: Vec<char> = entry
+                .headword()
+                .chars()
+                .filter(|c| crate::ui::entry_view::is_kanji(*c))
+                .collect();
+            !kanji.is_empty()
+                && kanji.iter().all(|c| {
+                    learned
+                        .get(&(Kind::Kanji, c.to_string()))
+                        .is_some_and(|(_, stage)| is_known(*stage))
+                })
+        }
     }
 }
 
-/// `langs` are the Tatoeba language codes for the translations of sentence hits, preferred first.
+/// `langs` are the Tatoeba language codes for the translations of sentence hits, preferred
+/// first; `learned` is what the learning accounts know, for `#known` and friends.
 pub fn run(
     db: &Database,
     input: &str,
     limit: usize,
     sources: &[String],
     langs: &[String],
+    learned: &LearnedIndex,
 ) -> anyhow::Result<Outcome> {
     let q = query::parse(input);
     if q.sentences {
@@ -108,6 +142,7 @@ pub fn run(
         seen: HashSet::new(),
         tags: q.tags.clone(),
         group: None,
+        learned,
     };
     let hint = (!q.unknown_tags.is_empty()).then(|| {
         format!(
@@ -143,6 +178,38 @@ pub fn run(
         && let Some(level) = level
     {
         for e in db.jlpt_words(level, limit * 4, sources)? {
+            hits.push(e, None);
+        }
+        hits.list.truncate(limit);
+        return Ok(Outcome {
+            hits: hits.list,
+            sentences: Vec::new(),
+            hint,
+        });
+    }
+    // `#known` or `#wk-level-12` on their own list the learned words themselves.
+    let listing: Option<Vec<String>> = q.tags.iter().find_map(|t| match t {
+        query::Tag::Known(true) => Some(
+            learned
+                .iter()
+                .filter(|((kind, _), (_, stage))| *kind == Kind::Vocabulary && is_known(*stage))
+                .map(|((_, text), _)| text.clone())
+                .collect(),
+        ),
+        query::Tag::WkLevel(level) => Some(
+            learned
+                .iter()
+                .filter(|((kind, _), (l, _))| *kind == Kind::Vocabulary && l == level)
+                .map(|((_, text), _)| text.clone())
+                .collect(),
+        ),
+        _ => None,
+    });
+    if text.is_empty()
+        && let Some(mut texts) = listing
+    {
+        texts.sort();
+        for e in db.lookup(&texts, sources, limit * 4)? {
             hits.push(e, None);
         }
         hits.list.truncate(limit);
@@ -231,6 +298,7 @@ fn sentence(
                 seen: HashSet::new(),
                 tags: Vec::new(),
                 group: Some(word.clone()),
+                learned: hits.learned,
             };
             for e in db.lookup(std::slice::from_ref(&word), sources, PER_WORD)? {
                 probe.push(e, None);
@@ -335,6 +403,31 @@ mod tests {
         vec!["jmdict".into()]
     }
 
+    fn none() -> LearnedIndex {
+        LearnedIndex::new()
+    }
+
+    #[test]
+    fn known_filters_read_the_learned_index() {
+        let db = sample_db();
+        let mut learned = LearnedIndex::new();
+        learned.insert((Kind::Vocabulary, "猫".into()), (6, 7)); // Master
+        learned.insert((Kind::Vocabulary, "書く".into()), (4, 2)); // Apprentice
+        learned.insert((Kind::Kanji, "猫".into()), (6, 9));
+        let ids = |q: &str| ids_of(&run(&db, q, 10, &only_jmdict(), &[], &learned).unwrap());
+        assert_eq!(ids("#known 猫"), [1467640, 2000003]); // both 猫 entries share the form
+        assert!(ids("#known 書く").is_empty());
+        assert_eq!(ids("#unknown 書く"), [1236120]);
+        assert_eq!(ids("#wk-level-6 猫"), [1467640, 2000003]);
+        assert!(ids("#wk-level-5 猫").is_empty());
+        assert_eq!(ids("#kanji-known 猫"), [1467640, 2000003]); // 猫背 needs 背 too
+        assert!(ids("#kanji-known 書く").is_empty());
+        // On their own the tags list the learned words.
+        assert_eq!(ids("#known"), [1467640, 2000003]);
+        assert_eq!(ids("#wk-level-4"), [1236120]);
+        assert!(ids("#wk-level-9").is_empty());
+    }
+
     fn with_names() -> (Database, Vec<String>) {
         let db = sample_db();
         let names = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jmnedict-sample.xml");
@@ -352,19 +445,19 @@ mod tests {
         let lists = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jlpt/jlpt-n5.csv");
         import::import_file(&db, &crate::dict::sources::JLPT, &lists, &mut |_, _| {}).unwrap();
         assert_eq!(
-            ids_of(&run(&db, "#jlpt-n5", 10, &only_jmdict(), &[]).unwrap()),
+            ids_of(&run(&db, "#jlpt-n5", 10, &only_jmdict(), &[], &none()).unwrap()),
             [1236120, 1467640]
         );
         assert_eq!(
-            ids_of(&run(&db, "#jlpt-n4", 10, &only_jmdict(), &[]).unwrap()),
+            ids_of(&run(&db, "#jlpt-n4", 10, &only_jmdict(), &[], &none()).unwrap()),
             [1000225]
         );
         assert_eq!(
-            ids_of(&run(&db, "#jlpt-n5 猫", 10, &only_jmdict(), &[]).unwrap()),
+            ids_of(&run(&db, "#jlpt-n5 猫", 10, &only_jmdict(), &[], &none()).unwrap()),
             [1467640]
         );
         assert!(
-            run(&db, "#jlpt-n1 猫", 10, &only_jmdict(), &[])
+            run(&db, "#jlpt-n1 猫", 10, &only_jmdict(), &[], &none())
                 .unwrap()
                 .hits
                 .is_empty()
@@ -375,19 +468,25 @@ mod tests {
     fn names_show_for_exact_matches_and_with_the_tag() {
         let (db, both) = with_names();
         // A prefix search stays free of names, an exact form finds them after the words.
-        assert!(!ids_of(&run(&db, "さ", 10, &both, &[]).unwrap()).contains(&5000001));
-        assert_eq!(ids_of(&run(&db, "佐藤", 10, &both, &[]).unwrap()), [5000001]);
-        let cat = ids_of(&run(&db, "猫", 10, &both, &[]).unwrap());
+        assert!(!ids_of(&run(&db, "さ", 10, &both, &[], &none()).unwrap()).contains(&5000001));
+        assert_eq!(
+            ids_of(&run(&db, "佐藤", 10, &both, &[], &none()).unwrap()),
+            [5000001]
+        );
+        let cat = ids_of(&run(&db, "猫", 10, &both, &[], &none()).unwrap());
         assert_eq!(cat[0], 1467640);
         assert!(cat.contains(&5000004)); // the given name 猫, after every JMdict 猫
         // `#names` searches the names alone, prefixes included.
-        assert_eq!(ids_of(&run(&db, "#names さ", 10, &both, &[]).unwrap()), [5000001]);
         assert_eq!(
-            ids_of(&run(&db, "#names tokyo", 10, &both, &[]).unwrap()),
+            ids_of(&run(&db, "#names さ", 10, &both, &[], &none()).unwrap()),
+            [5000001]
+        );
+        assert_eq!(
+            ids_of(&run(&db, "#names tokyo", 10, &both, &[], &none()).unwrap()),
             [5000002]
         );
         // Without JMnedict enabled the tag says what is missing.
-        let outcome = run(&db, "#names さ", 10, &only_jmdict(), &[]).unwrap();
+        let outcome = run(&db, "#names さ", 10, &only_jmdict(), &[], &none()).unwrap();
         assert!(outcome.hits.is_empty());
         assert!(outcome.hint.unwrap().contains("JMnedict"));
     }
@@ -395,23 +494,29 @@ mod tests {
     #[test]
     fn inflected_verb_finds_its_entry_with_the_chain() {
         let db = sample_db();
-        let hits = run(&db, "書きました", 10, &only_jmdict(), &[]).unwrap().hits;
+        let hits = run(&db, "書きました", 10, &only_jmdict(), &[], &none())
+            .unwrap()
+            .hits;
         assert_eq!(hits[0].entry.id, 1236120);
         assert_eq!(hits[0].note.as_deref(), Some("書きました → 書く: polite, past"));
-        let hits = run(&db, "書かない", 10, &only_jmdict(), &[]).unwrap().hits;
+        let hits = run(&db, "書かない", 10, &only_jmdict(), &[], &none())
+            .unwrap()
+            .hits;
         assert_eq!(hits[0].note.as_deref(), Some("書かない → 書く: negative"));
     }
 
     #[test]
     fn romaji_finds_readings_and_english_stays_a_gloss_search() {
         let db = sample_db();
-        let hits = run(&db, "neko", 10, &only_jmdict(), &[]).unwrap().hits;
+        let hits = run(&db, "neko", 10, &only_jmdict(), &[], &none()).unwrap().hits;
         assert_eq!(hits[0].entry.id, 1467640);
         assert_eq!(hits[0].note, None);
-        let hits = run(&db, "kakimashita", 10, &only_jmdict(), &[]).unwrap().hits;
+        let hits = run(&db, "kakimashita", 10, &only_jmdict(), &[], &none())
+            .unwrap()
+            .hits;
         assert_eq!(hits[0].entry.id, 1236120);
         assert_eq!(hits[0].note.as_deref(), Some("かきました → 書く: polite, past"));
-        let hits = run(&db, "cat", 10, &only_jmdict(), &[]).unwrap().hits;
+        let hits = run(&db, "cat", 10, &only_jmdict(), &[], &none()).unwrap().hits;
         assert_eq!(hits[0].entry.id, 1467640);
         assert!(hits.iter().all(|h| h.note.is_none()));
     }
@@ -420,9 +525,14 @@ mod tests {
     fn a_noun_is_not_offered_as_a_verb() {
         let db = sample_db();
         // 猫 + "る" would be a stem candidate; no ichidan entry 猫る exists, so nothing is added.
-        let hits = run(&db, "猫", 10, &only_jmdict(), &[]).unwrap().hits;
+        let hits = run(&db, "猫", 10, &only_jmdict(), &[], &none()).unwrap().hits;
         assert!(hits.iter().all(|h| h.note.is_none()));
-        assert!(run(&db, "", 10, &only_jmdict(), &[]).unwrap().hits.is_empty());
+        assert!(
+            run(&db, "", 10, &only_jmdict(), &[], &none())
+                .unwrap()
+                .hits
+                .is_empty()
+        );
     }
 
     fn ids(hits: &[Hit]) -> Vec<i64> {
@@ -432,25 +542,29 @@ mod tests {
     #[test]
     fn tags_filter_and_unknown_tags_hint() {
         let db = sample_db();
-        let common = run(&db, "猫 #common", 10, &only_jmdict(), &[]).unwrap();
+        let common = run(&db, "猫 #common", 10, &only_jmdict(), &[], &none()).unwrap();
         assert!(common.hits.iter().all(|h| h.entry.common));
         assert!(!common.hits.is_empty());
-        let verbs = run(&db, "#verb 書", 10, &only_jmdict(), &[]).unwrap().hits;
+        let verbs = run(&db, "#verb 書", 10, &only_jmdict(), &[], &none())
+            .unwrap()
+            .hits;
         assert_eq!(ids(&verbs), [1236120]);
         assert!(
-            run(&db, "#noun 書く", 10, &only_jmdict(), &[])
+            run(&db, "#noun 書く", 10, &only_jmdict(), &[], &none())
                 .unwrap()
                 .hits
                 .is_empty()
         );
-        let kana = run(&db, "#kana cat", 10, &only_jmdict(), &[]).unwrap().hits;
+        let kana = run(&db, "#kana cat", 10, &only_jmdict(), &[], &none())
+            .unwrap()
+            .hits;
         assert!(kana.iter().all(|h| {
             h.entry
                 .senses
                 .iter()
                 .any(|s| s.misc.iter().any(|m| m.contains("kana")))
         }));
-        let unknown = run(&db, "#bogus cat", 10, &only_jmdict(), &[]).unwrap();
+        let unknown = run(&db, "#bogus cat", 10, &only_jmdict(), &[], &none()).unwrap();
         assert!(
             unknown
                 .hint
@@ -465,30 +579,32 @@ mod tests {
     fn quotes_and_wildcards() {
         let db = sample_db();
         assert_eq!(
-            ids(&run(&db, "\"obvious\"", 10, &only_jmdict(), &[]).unwrap().hits),
+            ids(&run(&db, "\"obvious\"", 10, &only_jmdict(), &[], &none())
+                .unwrap()
+                .hits),
             [1000225]
         );
         assert!(
-            run(&db, "\"obvi\"", 10, &only_jmdict(), &[])
+            run(&db, "\"obvi\"", 10, &only_jmdict(), &[], &none())
                 .unwrap()
                 .hits
                 .is_empty()
         );
-        let exact = run(&db, "\"猫\"", 10, &only_jmdict(), &[]).unwrap().hits;
+        let exact = run(&db, "\"猫\"", 10, &only_jmdict(), &[], &none()).unwrap().hits;
         assert_eq!(exact[0].entry.id, 1467640);
         assert!(exact.iter().all(|h| h.entry.kanji.iter().any(|k| k == "猫")));
         assert_eq!(
-            ids(&run(&db, "猫?", 10, &only_jmdict(), &[]).unwrap().hits),
+            ids(&run(&db, "猫?", 10, &only_jmdict(), &[], &none()).unwrap().hits),
             [2000002]
         );
-        let wild = run(&db, "c?t", 10, &only_jmdict(), &[]).unwrap().hits;
+        let wild = run(&db, "c?t", 10, &only_jmdict(), &[], &none()).unwrap().hits;
         assert!(wild.iter().any(|h| h.entry.id == 1467640)); // "cat" inside a gloss
     }
 
     #[test]
     fn a_sentence_is_cut_into_words_with_groups() {
         let db = sample_db();
-        let hits = run(&db, "猫背を書きました", 20, &only_jmdict(), &[])
+        let hits = run(&db, "猫背を書きました", 20, &only_jmdict(), &[], &none())
             .unwrap()
             .hits;
         let groups: Vec<&str> = hits.iter().filter_map(|h| h.group.as_deref()).collect();

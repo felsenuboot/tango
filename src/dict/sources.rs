@@ -201,7 +201,7 @@ pub fn by_id(id: &str) -> Option<&'static Source> {
 /// `(bytes so far, total bytes if the server said)`
 pub type Progress<'a> = &'a mut dyn FnMut(u64, Option<u64>);
 
-const USER_AGENT: &str = concat!(
+pub const USER_AGENT: &str = concat!(
     "tango/",
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/felsenuboot/tango)"

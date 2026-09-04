@@ -3,6 +3,7 @@
 use adw::prelude::*;
 use gtk::glib;
 
+use crate::accounts::{self, Kind, Learned};
 use crate::dict::sources;
 use crate::model::{Entry, LanguageBlock, Sense, Sentence, language_name};
 
@@ -126,8 +127,16 @@ impl EntryView {
     }
 
     /// `preferred` is the configured language order; languages the entry has beyond that follow.
-    /// Renders `entry`; `examples` are its first example sentences out of `total`.
-    pub fn show(&self, entry: &Entry, preferred: &[String], examples: &[Sentence], total: usize) {
+    /// Renders `entry`; `examples` are its first example sentences out of `total`, `learned`
+    /// what the learning accounts know about the word and its kanji.
+    pub fn show(
+        &self,
+        entry: &Entry,
+        preferred: &[String],
+        examples: &[Sentence],
+        total: usize,
+        learned: &[Learned],
+    ) {
         while let Some(child) = self.body.first_child() {
             self.body.remove(&child);
         }
@@ -183,6 +192,9 @@ impl EntryView {
         if entry.kanji.len() > 1 {
             let also = format!("Also written {}", entry.kanji[1..].join("、"));
             self.body.append(&label(&also, &["dim-label"]));
+        }
+        if !learned.is_empty() {
+            self.body.append(&learned_row(learned));
         }
         let notes = form_notes(entry);
         if !notes.is_empty() {
@@ -308,6 +320,44 @@ fn pitch_chip(pitch: u8) -> gtk::Label {
         .tooltip_text(tooltip)
         .css_classes(["tango-pitch"])
         .build()
+}
+
+/// "WaniKani 6 · Guru" for the word, then one chip per kanji the site knows.
+fn learned_row(learned: &[Learned]) -> gtk::FlowBox {
+    let flow = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .homogeneous(false)
+        .row_spacing(4)
+        .column_spacing(6)
+        .max_children_per_line(20)
+        .halign(gtk::Align::Start)
+        .build();
+    let mut items: Vec<&Learned> = learned.iter().collect();
+    items.sort_by_key(|l| (l.kind != Kind::Vocabulary, l.text.clone()));
+    for l in items {
+        let text = match l.kind {
+            Kind::Vocabulary => format!(
+                "{} {} · {}",
+                accounts::provider_name(&l.provider),
+                l.level,
+                accounts::stage_name(l.stage)
+            ),
+            Kind::Kanji => format!("{} {} · {}", l.text, l.level, accounts::stage_name(l.stage)),
+        };
+        let chip = gtk::Label::builder()
+            .label(text)
+            .tooltip_text(format!(
+                "{}: level {}, SRS stage {} ({})",
+                accounts::provider_name(&l.provider),
+                l.level,
+                l.stage,
+                accounts::stage_name(l.stage)
+            ))
+            .css_classes(["tango-learned"])
+            .build();
+        flow.insert(&chip, -1);
+    }
+    flow
 }
 
 /// What JMdict says about single forms: "猫脊: rarely used kanji form", "ねこぜ: with 猫背 only".

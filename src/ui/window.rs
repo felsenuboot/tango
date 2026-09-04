@@ -16,15 +16,19 @@ use super::radicals::RadicalsPage;
 use super::sentence_view::SentenceView;
 use super::thousands;
 use crate::APP_NAME;
+use crate::accounts::{self, Kind, wanikani};
+use crate::config::user_database_path;
 use crate::config::{Config, cache_dir};
 use crate::dict::sources::{self, Source};
 use crate::dict::tatoeba;
 use crate::model::{Entry, Sentence, SentenceWord};
 use crate::search::{self, Hit};
+use crate::secrets;
 use crate::store::db::Database;
 use crate::store::export::TakobotoRow;
 use crate::store::import;
-use crate::store::user::{ListEntry, UserDb};
+use crate::store::now_iso8601;
+use crate::store::user::{LearnedIndex, ListEntry, UserDb};
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 const RESULT_LIMIT: usize = 100;
@@ -80,6 +84,8 @@ pub struct Window {
     current: RefCell<Option<Entry>>,
     /// How many example sentences the entry shows: a few, or all after "Show all".
     example_limit: Cell<usize>,
+    /// What the learning accounts know, for the `#known` filters; reloaded after a sync.
+    learned: RefCell<LearnedIndex>,
     search_timer: Cell<Option<glib::SourceId>>,
 }
 
@@ -309,6 +315,10 @@ impl Window {
         );
         win.add_breakpoint(breakpoint);
 
+        let learned = user.learned_index().unwrap_or_else(|e| {
+            log::error!("cannot read the learned items: {e:#}");
+            LearnedIndex::new()
+        });
         let this = Rc::new(Self {
             win,
             search,
@@ -343,6 +353,7 @@ impl Window {
             found_sentences: RefCell::new(Vec::new()),
             current: RefCell::new(None),
             example_limit: Cell::new(EXAMPLES_FIRST),
+            learned: RefCell::new(learned),
             search_timer: Cell::new(None),
         });
 
@@ -1154,6 +1165,7 @@ impl Window {
             RESULT_LIMIT,
             &enabled,
             &tatoeba::languages(&langs),
+            &self.learned.borrow(),
         ) {
             Ok(outcome) => outcome,
             Err(e) => {
@@ -1266,7 +1278,20 @@ impl Window {
         } else {
             (Vec::new(), 0)
         };
-        self.entry_view.show(entry, &langs, &examples, total);
+        let learned = if self.config.borrow().show_wanikani {
+            let mut texts: Vec<String> = entry.kanji.iter().chain(&entry.readings).cloned().collect();
+            texts.extend(
+                entry
+                    .headword()
+                    .chars()
+                    .filter(|c| super::entry_view::is_kanji(*c))
+                    .map(|c| c.to_string()),
+            );
+            self.user.learned_for(&texts).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        self.entry_view.show(entry, &langs, &examples, total, &learned);
     }
 
     /// "Show all": the entry again with every example, scrolled to where it was.
@@ -1337,6 +1362,15 @@ impl Window {
         let enabled = self.config.borrow().enabled_sources();
         let words = self.db.words_with(literal, 40, &enabled).unwrap_or_default();
         let langs = self.config.borrow().gloss_languages.clone();
+        let learned = if self.config.borrow().show_wanikani {
+            self.user
+                .learned_for(&[literal.to_string()])
+                .unwrap_or_default()
+                .into_iter()
+                .find(|l| l.kind == Kind::Kanji)
+        } else {
+            None
+        };
         self.kanji_view.show(
             literal,
             kanji.as_ref(),
@@ -1344,6 +1378,7 @@ impl Window {
             &radicals,
             words,
             &langs,
+            learned.as_ref(),
         );
         self.stack.set_visible_child_name("kanji");
         self.back.set_visible(true);
@@ -1391,7 +1426,7 @@ impl Window {
         let path = self.db_path.clone();
         let cache = cache_dir();
         self.run_job(
-            source,
+            source.id,
             format!("Downloading {}", source.name),
             move |report| {
                 let db = Database::open(&path)?;
@@ -1419,7 +1454,7 @@ impl Window {
     ) {
         let path = self.db_path.clone();
         self.run_job(
-            source,
+            source.id,
             format!("Importing {}", source.name),
             move |report| {
                 let db = Database::open(&path)?;
@@ -1438,7 +1473,7 @@ impl Window {
         let path = self.db_path.clone();
         let cache = cache_dir();
         self.run_job(
-            source,
+            source.id,
             format!("Removing {}", source.name),
             move |report| {
                 let db = Database::open(&path)?;
@@ -1453,7 +1488,7 @@ impl Window {
     /// the window state and the search are refreshed and `after` runs.
     fn run_job(
         self: &Rc<Self>,
-        source: &'static Source,
+        id: &'static str,
         title: String,
         job: impl FnOnce(import::Report) -> anyhow::Result<String> + Send + 'static,
         after: impl FnOnce() + 'static,
@@ -1476,7 +1511,107 @@ impl Window {
             this.radicals.refresh();
             after();
         });
-        self.jobs.enqueue(source.id, title, Box::new(job), done);
+        self.jobs.enqueue(id, title, Box::new(job), done);
+    }
+
+    // -- accounts ---------------------------------------------------------------------------
+
+    /// What the user database remembers about the WaniKani account, if one is connected.
+    pub fn wanikani_status(&self) -> Option<accounts::Status> {
+        let get = |key: &str| self.user.sync_state(wanikani::PROVIDER, key).ok().flatten();
+        let username = get("username")?;
+        Some(accounts::Status {
+            username,
+            level: get("level").and_then(|l| l.parse().ok()).unwrap_or(0),
+            last_sync: get("last_sync"),
+            items: self.user.learned_count(wanikani::PROVIDER).unwrap_or(0),
+        })
+    }
+
+    /// Checks a WaniKani token, keeps it in the keyring, remembers who it belongs to, and
+    /// queues the first sync.
+    pub fn connect_wanikani(self: &Rc<Self>, token: String, after: impl FnOnce() + 'static) {
+        let user_path = user_database_path();
+        let this = Rc::downgrade(self);
+        self.run_job(
+            "wanikani",
+            "Connecting WaniKani".into(),
+            move |report| {
+                report("Checking the token…".into(), None);
+                let account = wanikani::user(&token)?;
+                secrets::store(wanikani::PROVIDER, &token)?;
+                let db = UserDb::open(&user_path)?;
+                db.set_sync_state(wanikani::PROVIDER, "username", &account.username)?;
+                db.set_sync_state(wanikani::PROVIDER, "level", &account.level.to_string())?;
+                Ok(format!(
+                    "Connected to WaniKani as {} (level {})",
+                    account.username, account.level
+                ))
+            },
+            move || match this.upgrade() {
+                Some(this) => this.sync_wanikani(after),
+                None => after(),
+            },
+        );
+    }
+
+    /// Queues an incremental sync with the stored token.
+    pub fn sync_wanikani(self: &Rc<Self>, after: impl FnOnce() + 'static) {
+        let user_path = user_database_path();
+        let this = Rc::downgrade(self);
+        self.run_job(
+            "wanikani",
+            "Syncing WaniKani".into(),
+            move |report| {
+                let token = secrets::lookup(wanikani::PROVIDER)?
+                    .ok_or_else(|| anyhow::anyhow!("no WaniKani token; connect the account first"))?;
+                let db = UserDb::open(&user_path)?;
+                let stats = wanikani::sync(&token, &db, report)?;
+                db.set_sync_state(wanikani::PROVIDER, "last_sync", &now_iso8601())?;
+                Ok(format!(
+                    "WaniKani: {} items synced",
+                    thousands(stats.learned as i64)
+                ))
+            },
+            move || {
+                if let Some(this) = this.upgrade() {
+                    this.refresh_learned();
+                }
+                after();
+            },
+        );
+    }
+
+    /// Forgets the token and everything synced from WaniKani.
+    pub fn disconnect_wanikani(self: &Rc<Self>, after: impl FnOnce() + 'static) {
+        let user_path = user_database_path();
+        let this = Rc::downgrade(self);
+        self.run_job(
+            "wanikani",
+            "Disconnecting WaniKani".into(),
+            move |_report| {
+                if let Err(e) = secrets::clear(wanikani::PROVIDER) {
+                    log::warn!("{e:#}");
+                }
+                UserDb::open(&user_path)?.clear_provider(wanikani::PROVIDER)?;
+                Ok("WaniKani disconnected".into())
+            },
+            move || {
+                if let Some(this) = this.upgrade() {
+                    this.refresh_learned();
+                }
+                after();
+            },
+        );
+    }
+
+    /// After a sync: the filters' index and the shown entry follow the new data.
+    pub fn refresh_learned(&self) {
+        *self.learned.borrow_mut() = self.user.learned_index().unwrap_or_else(|e| {
+            log::error!("cannot read the learned items: {e:#}");
+            LearnedIndex::new()
+        });
+        self.rerender();
     }
 
     pub fn choose_import_file(self: &Rc<Self>, source: &'static Source, after: impl FnOnce() + 'static) {

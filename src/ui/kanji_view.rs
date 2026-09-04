@@ -1,6 +1,8 @@
 //! One kanji: the character with its stroke order diagram, readings, meanings, the numbers a
-//! learner cares about (strokes, grade, JLPT, frequency), its radicals, and words that use it.
+//! learner cares about (strokes, grade, JLPT, frequency), its radicals, and words that
+//! use it.
 
+use crate::accounts::{self, Learned};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -74,6 +76,8 @@ impl KanjiView {
     }
 
     /// `kanji` may be missing (no KANJIDIC2) while strokes exist, or the other way round.
+    // One page, one call: every piece of data the window gathered for it.
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         self: &Rc<Self>,
         literal: char,
@@ -82,6 +86,7 @@ impl KanjiView {
         radicals: &[String],
         words: Vec<Entry>,
         preferred: &[String],
+        learned: Option<&Learned>,
     ) {
         while let Some(child) = self.body.first_child() {
             self.body.remove(&child);
@@ -113,6 +118,23 @@ impl KanjiView {
             .orientation(gtk::Orientation::Horizontal)
             .spacing(8)
             .build();
+        if let Some(l) = learned {
+            let tag = chip(
+                &format!(
+                    "{} {} · {}",
+                    accounts::provider_name(&l.provider),
+                    l.level,
+                    accounts::stage_name(l.stage)
+                ),
+                &format!(
+                    "Level on {} and SRS stage {}",
+                    accounts::provider_name(&l.provider),
+                    l.stage
+                ),
+            );
+            tag.add_css_class("tango-learned");
+            facts.append(&tag);
+        }
         if let Some(k) = kanji {
             facts.append(&chip(&format!("{} strokes", k.strokes), "Stroke count"));
             if let Some(grade) = k.grade {

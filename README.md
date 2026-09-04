@@ -54,6 +54,10 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   count; update, remove, toggle. Downloads and imports run in the background,
   queued, while you keep searching. Nothing is bundled; downloads happen on
   request.
+- 🐊 **WaniKani.** Connect an account on the Accounts page (the token lives
+  in the keyring): entries and kanji pages show the WaniKani level and SRS
+  stage, and `#known`, `#unknown`, `#kanji-known` and `#wk-level-12` filter
+  by what you have learned.
 - 🎨 **Desktop.** Adaptive layout, light and dark theme or the system's,
   keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+D` star, `Ctrl+I` import,
   `Ctrl+,` preferences).
@@ -62,7 +66,7 @@ The [tour](docs/TOUR.md) shows each of these with screenshots.
 
 ## Install
 
-Rust 1.85+, GTK 4.12+, libadwaita 1.5+, SQLite, liblzma.
+Rust 1.85+, GTK 4.12+, libadwaita 1.5+, SQLite, liblzma, libsecret.
 
 ```
 git clone https://github.com/felsenuboot/tango.git
@@ -80,8 +84,8 @@ with the desktop entry and icons. Or just `cargo run` from the checkout.
 
 | Distribution | Packages |
 | --- | --- |
-| Arch | `rust gtk4 libadwaita sqlite xz` |
-| Debian, Ubuntu | `cargo libgtk-4-dev libadwaita-1-dev libsqlite3-dev liblzma-dev` |
+| Arch | `rust gtk4 libadwaita sqlite xz libsecret` |
+| Debian, Ubuntu | `cargo libgtk-4-dev libadwaita-1-dev libsqlite3-dev liblzma-dev libsecret-1-dev` |
 
 There is no Flatpak, and Flathub is not planned.
 
@@ -158,6 +162,12 @@ desktop. Tick and delete when done; a bug goes into a new issue.
   button) and アルバイト ("from German: Arbeit").
 - [ ] **#18 names.** Search 田中: the surname rows come after the word;
   `#names さとう` lists names only.
+- [ ] **#11 WaniKani.** Preferences → Accounts: paste a read-only token and
+  Connect; the row shows your username and level, the first sync runs in the
+  background (about thirty requests, half a minute), then 食べる shows a
+  purple "WaniKani 6 · Guru" chip (or whatever your stage is), the kanji page
+  of 食 too, and `#known` / `#kanji-known` filter. Sync now and Disconnect
+  work; after Disconnect the keyring item "Tango: wanikani API token" is gone.
 
 ## Name and licence
 

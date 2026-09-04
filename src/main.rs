@@ -9,11 +9,13 @@
 //!   config.rs  the JSON preferences file and the XDG directories
 //!   autopilot.rs  scripted UI driving for screenshots and smoke tests
 
+mod accounts;
 mod autopilot;
 mod config;
 mod dict;
 mod model;
 mod search;
+mod secrets;
 mod store;
 mod ui;
 

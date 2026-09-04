@@ -1,0 +1,77 @@
+//! Accounts on learning sites and what the user has learned there. Each provider syncs into
+//! the same `learned` table of the user database, so the entry view, the kanji page and the
+//! `#known` filters work the same whichever site the items come from.
+//!
+//! Providers: WaniKani (#11). MaruMori (#12) waits for its API details.
+
+pub mod wanikani;
+
+/// What an item is on the provider's side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Kind {
+    Kanji,
+    Vocabulary,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Kanji => "kanji",
+            Kind::Vocabulary => "vocabulary",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "kanji" => Some(Kind::Kanji),
+            "vocabulary" => Some(Kind::Vocabulary),
+            _ => None,
+        }
+    }
+}
+
+/// One learned item: the text as the user sees it on the site (a kanji, or a word in its usual
+/// written form), the site's level, and the SRS stage on WaniKani's 0–9 scale.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Learned {
+    pub provider: String,
+    pub kind: Kind,
+    pub text: String,
+    pub level: u32,
+    pub stage: u8,
+}
+
+/// WaniKani's stage groups; other providers map onto them.
+pub fn stage_name(stage: u8) -> &'static str {
+    match stage {
+        0 => "Locked",
+        1..=4 => "Apprentice",
+        5 | 6 => "Guru",
+        7 => "Master",
+        8 => "Enlightened",
+        _ => "Burned",
+    }
+}
+
+/// "Known" means passed: Guru or beyond, which is when WaniKani unlocks what builds on it.
+pub fn is_known(stage: u8) -> bool {
+    stage >= 5
+}
+
+/// A connected account as the Accounts page shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Status {
+    pub username: String,
+    pub level: u32,
+    /// ISO 8601, or none before the first sync.
+    pub last_sync: Option<String>,
+    pub items: usize,
+}
+
+pub fn provider_name(id: &str) -> &str {
+    match id {
+        "wanikani" => "WaniKani",
+        "marumori" => "MaruMori",
+        other => other,
+    }
+}

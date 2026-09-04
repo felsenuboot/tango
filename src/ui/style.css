@@ -27,6 +27,10 @@
   font-size: 0.75em; font-weight: 700; padding: 1px 8px; border-radius: 99px;
   background-color: alpha(@success_bg_color, 0.2); color: @success_color;
 }
+.tango-learned {
+  font-size: 0.8em; font-weight: 700; padding: 1px 8px; border-radius: 99px;
+  background-color: alpha(@purple_3, 0.25);
+}
 .tango-common {
   font-size: 0.75em; font-weight: 700; padding: 1px 8px; border-radius: 99px;
   background-color: alpha(@accent_bg_color, 0.2); color: @accent_color;

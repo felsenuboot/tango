@@ -12,6 +12,7 @@
 //!   kanji <char>         show the kanji page for that character
 //!   radical <r>          toggle that radical on the Kanji sidebar page
 //!   hide on|off          hide (or grey out) the parts that no longer fit on the Kanji page
+//!   wanikani sync|disconnect|connect <token>   the WaniKani account (TANGO_WANIKANI_TOKEN works for sync)
 //!   star                 toggle the current entry in Favourites
 //!   sidebar search|lists show that sidebar page
 //!   list <name>          open that word list in the sidebar
@@ -102,6 +103,12 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         "sidebar" => win.show_sidebar_page(arg),
         "radical" => win.radicals_page().toggle(arg),
         "hide" => win.radicals_page().set_hide(arg == "on"),
+        "wanikani" => match arg.split_once(' ').unwrap_or((arg, "")) {
+            ("sync", _) => win.sync_wanikani(|| {}),
+            ("disconnect", _) => win.disconnect_wanikani(|| {}),
+            ("connect", token) => win.connect_wanikani(token.to_string(), || {}),
+            other => log::warn!("autopilot: unknown wanikani step {other:?}"),
+        },
         "list" => match win.user().list_by_name(arg) {
             Ok(Some(list)) => {
                 win.show_sidebar_page("lists");
@@ -132,10 +139,11 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         }
         "scroll" => win.scroll_content(arg == "end"),
         "state" => log::info!(
-            "autopilot state: search={:?} results={} selected={:?} jobs={}",
+            "autopilot state: search={:?} results={} selected={:?} learned={} jobs={}",
             win.search.text(),
             win.result_count(),
             win.current_entry_id(),
+            win.user().learned_count("wanikani").unwrap_or(0),
             win.jobs().current().map_or("idle".to_string(), |c| format!(
                 "{} ({}), {} queued",
                 c.title,

@@ -18,6 +18,12 @@ pub enum Tag {
     Names,
     /// `#jlpt-n5` … `#jlpt-n1`: words on that JLPT list.
     Jlpt(u8),
+    /// `#known` / `#unknown`: whether a learning account has the word at Guru or beyond.
+    Known(bool),
+    /// `#kanji-known`: every kanji in the headword is known.
+    KanjiKnown,
+    /// `#wk-level-12`: the word is on that WaniKani level.
+    WkLevel(u32),
 }
 
 /// Tag names as typed, without the `#`.
@@ -46,6 +52,11 @@ pub const TAGS: &[(&str, Tag)] = &[
     ("jlpt-n3", Tag::Jlpt(3)),
     ("jlpt-n2", Tag::Jlpt(2)),
     ("jlpt-n1", Tag::Jlpt(1)),
+    ("known", Tag::Known(true)),
+    ("unknown", Tag::Known(false)),
+    ("wk-known", Tag::Known(true)),
+    ("wk-unknown", Tag::Known(false)),
+    ("kanji-known", Tag::KanjiKnown),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -71,6 +82,10 @@ pub fn parse(input: &str) -> Query {
     for token in input.split_whitespace() {
         if let Some(name) = token.strip_prefix('#').filter(|n| !n.is_empty()) {
             let name = name.to_lowercase();
+            if let Some(level) = name.strip_prefix("wk-level-").and_then(|n| n.parse().ok()) {
+                q.tags.push(Tag::WkLevel(level));
+                continue;
+            }
             match TAGS.iter().find(|(n, _)| *n == name) {
                 Some((_, Tag::Sentences)) => q.sentences = true,
                 Some((_, Tag::Names)) => q.names = true,
@@ -111,6 +126,8 @@ mod tests {
         let q = parse("#jlpt-n5");
         assert_eq!(q.tags, [Tag::Jlpt(5)]);
         assert_eq!(q.text, "");
+        let q = parse("#wk-level-12 #known");
+        assert_eq!(q.tags, [Tag::WkLevel(12), Tag::Known(true)]);
         let q = parse("#names 佐藤");
         assert!(q.names);
         assert_eq!(q.text, "佐藤");

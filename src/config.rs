@@ -26,6 +26,8 @@ pub struct Config {
     /// Kanji page: drop the parts no remaining kanji contains from the grid instead of greying
     /// them out.
     pub hide_unusable_radicals: bool,
+    /// Show what WaniKani knows about an entry and its kanji (the token itself is in the keyring).
+    pub show_wanikani: bool,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -62,6 +64,7 @@ impl Default for Config {
             sources: Vec::new(),
             window: WindowState::default(),
             hide_unusable_radicals: false,
+            show_wanikani: true,
             path: config_dir().join("config.json"),
         }
     }
