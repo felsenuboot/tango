@@ -11,6 +11,7 @@
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
 //!   kanji <char>         show the kanji page for that character
 //!   radical <r>          toggle that radical on the Kanji sidebar page
+//!   hide on|off          hide (or grey out) the parts that no longer fit on the Kanji page
 //!   star                 toggle the current entry in Favourites
 //!   sidebar search|lists show that sidebar page
 //!   list <name>          open that word list in the sidebar
@@ -100,6 +101,7 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         }
         "sidebar" => win.show_sidebar_page(arg),
         "radical" => win.radicals_page().toggle(arg),
+        "hide" => win.radicals_page().set_hide(arg == "on"),
         "list" => match win.user().list_by_name(arg) {
             Ok(Some(list)) => {
                 win.show_sidebar_page("lists");

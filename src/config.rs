@@ -23,6 +23,9 @@ pub struct Config {
     /// after the listed ones; see `source_settings`.
     pub sources: Vec<SourceSetting>,
     pub window: WindowState,
+    /// Kanji page: drop the parts no remaining kanji contains from the grid instead of greying
+    /// them out.
+    pub hide_unusable_radicals: bool,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -58,6 +61,7 @@ impl Default for Config {
             color_scheme: "system".into(),
             sources: Vec::new(),
             window: WindowState::default(),
+            hide_unusable_radicals: false,
             path: config_dir().join("config.json"),
         }
     }

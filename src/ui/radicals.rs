@@ -1,5 +1,6 @@
 //! Search kanji by their parts: pick radicals, optionally a stroke count, get a grid of kanji.
-//! Radicals that no remaining kanji contains are greyed out, as on Jisho.
+//! Radicals that no remaining kanji contains are greyed out, as on Jisho, or hidden altogether
+//! (a toggle, remembered in the config) so the picker stays short.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -19,6 +20,10 @@ pub struct RadicalsPage {
     results: gtk::FlowBox,
     summary: gtk::Label,
     strokes: gtk::DropDown,
+    /// Hide the parts that cannot follow instead of greying them out.
+    hide: gtk::ToggleButton,
+    /// The stroke-count caption and grid pairs, hidden together when nothing in them is shown.
+    groups: RefCell<Vec<(gtk::Label, gtk::FlowBox)>>,
     empty: adw::StatusPage,
     stack: gtk::Stack,
     win: RefCell<Weak<Window>>,
@@ -40,6 +45,13 @@ impl RadicalsPage {
             .label("Clear")
             .css_classes(["flat"])
             .build();
+        let hide = gtk::ToggleButton::builder()
+            .icon_name("view-conceal-symbolic")
+            .tooltip_text("Hide parts that no longer fit, instead of greying them out")
+            .css_classes(["flat"])
+            .halign(gtk::Align::End)
+            .hexpand(true)
+            .build();
         let controls = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(6)
@@ -49,6 +61,7 @@ impl RadicalsPage {
             .build();
         controls.append(&strokes);
         controls.append(&clear);
+        controls.append(&hide);
         let summary = gtk::Label::builder()
             .xalign(0.0)
             .margin_start(6)
@@ -93,6 +106,8 @@ impl RadicalsPage {
             strokes,
             empty,
             stack,
+            hide,
+            groups: RefCell::new(Vec::new()),
             win: RefCell::new(Weak::new()),
             selected: RefCell::new(Vec::new()),
             buttons: RefCell::new(HashMap::new()),
@@ -108,12 +123,35 @@ impl RadicalsPage {
             this,
             move |_| this.clear()
         ));
+        this.hide.connect_toggled(clone!(
+            #[weak]
+            this,
+            move |button| {
+                if this.quiet.get() {
+                    return;
+                }
+                if let Some(win) = this.window() {
+                    let mut cfg = win.config().borrow_mut();
+                    cfg.hide_unusable_radicals = button.is_active();
+                    cfg.save();
+                }
+                this.update();
+            }
+        ));
         this
     }
 
     pub fn attach(self: &Rc<Self>, win: &Rc<Window>) {
         *self.win.borrow_mut() = Rc::downgrade(win);
+        self.quiet.set(true);
+        self.hide.set_active(win.config().borrow().hide_unusable_radicals);
+        self.quiet.set(false);
         self.refresh();
+    }
+
+    /// Flips the hide toggle (autopilot).
+    pub fn set_hide(&self, on: bool) {
+        self.hide.set_active(on);
     }
 
     fn window(&self) -> Option<Rc<Window>> {
@@ -129,6 +167,7 @@ impl RadicalsPage {
         }
         self.buttons.borrow_mut().clear();
         self.selected.borrow_mut().clear();
+        self.groups.borrow_mut().clear();
         if radicals.is_empty() {
             self.stack.set_visible_child(&self.empty);
             return;
@@ -158,6 +197,7 @@ impl RadicalsPage {
                     .margin_end(6)
                     .build();
                 self.radicals_box.append(&f);
+                self.groups.borrow_mut().push((header, f.clone()));
                 flow = Some(f);
             }
             let button = gtk::ToggleButton::builder()
@@ -223,7 +263,9 @@ impl RadicalsPage {
                 .set_text("Pick the parts of the kanji you are looking for.");
             for b in self.buttons.borrow().values() {
                 b.set_sensitive(true);
+                show_cell(b, true);
             }
+            self.show_groups();
             return;
         }
         let kanji = win
@@ -231,9 +273,19 @@ impl RadicalsPage {
             .kanji_with_radicals(&selected, strokes)
             .unwrap_or_default();
         let compatible = win.db().radicals_compatible(&selected).unwrap_or_default();
+        let hide = self.hide.is_active();
+        log::debug!(
+            "radicals: {} selected, {} kanji, {} parts can follow, hide={hide}",
+            selected.len(),
+            kanji.len(),
+            compatible.len()
+        );
         for (name, b) in self.buttons.borrow().iter() {
-            b.set_sensitive(b.is_active() || compatible.contains(name));
+            let usable = b.is_active() || compatible.contains(name);
+            b.set_sensitive(usable);
+            show_cell(b, !hide || usable);
         }
+        self.show_groups();
         let shown = kanji.len().min(MAX_KANJI);
         self.summary.set_text(&if kanji.len() > MAX_KANJI {
             format!(
@@ -256,5 +308,31 @@ impl RadicalsPage {
             ));
             self.results.append(&button);
         }
+    }
+
+    /// A stroke-count caption and its grid go when every part in it is hidden.
+    fn show_groups(&self) {
+        for (header, flow) in self.groups.borrow().iter() {
+            let mut child = flow.first_child();
+            let mut any = false;
+            while let Some(c) = child {
+                if c.get_visible() {
+                    any = true;
+                    break;
+                }
+                child = c.next_sibling();
+            }
+            header.set_visible(any);
+            flow.set_visible(any);
+        }
+    }
+}
+
+/// Shows or hides a grid cell: the button sits inside a `FlowBoxChild`, which is what takes the
+/// space, so that is what is hidden.
+fn show_cell(button: &gtk::ToggleButton, visible: bool) {
+    match button.parent() {
+        Some(child) => child.set_visible(visible),
+        None => button.set_visible(visible),
     }
 }
