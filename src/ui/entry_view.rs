@@ -194,7 +194,7 @@ impl EntryView {
             self.body.append(&label(&also, &["dim-label"]));
         }
         if !learned.is_empty() {
-            self.body.append(&learned_row(learned));
+            self.body.append(&learned_row(learned, entry.headword()));
         }
         let notes = form_notes(entry);
         if !notes.is_empty() {
@@ -322,42 +322,78 @@ fn pitch_chip(pitch: u8) -> gtk::Label {
         .build()
 }
 
-/// "WaniKani 6 · Guru" for the word, then one chip per kanji the site knows.
-fn learned_row(learned: &[Learned]) -> gtk::FlowBox {
+/// The WaniKani row under the readings: the site's name as a caption, then a chip per matched
+/// form of the word (one for the word when every form has the same level and stage), then one
+/// per kanji the site knows. The stage colours the chip, the kind is its left edge (issue #52,
+/// #53).
+fn learned_row(learned: &[Learned], headword: &str) -> gtk::FlowBox {
     let flow = gtk::FlowBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .homogeneous(false)
         .row_spacing(4)
         .column_spacing(6)
-        .max_children_per_line(20)
         .halign(gtk::Align::Start)
+        .max_children_per_line(20)
         .build();
-    let mut items: Vec<&Learned> = learned.iter().collect();
-    items.sort_by_key(|l| (l.kind != Kind::Vocabulary, l.text.clone()));
-    for l in items {
-        let text = match l.kind {
-            Kind::Vocabulary => format!(
-                "{} {} · {}",
-                accounts::provider_name(&l.provider),
-                l.level,
-                accounts::stage_name(l.stage)
-            ),
-            Kind::Kanji => format!("{} {} · {}", l.text, l.level, accounts::stage_name(l.stage)),
-        };
-        let chip = gtk::Label::builder()
-            .label(text)
-            .tooltip_text(format!(
-                "{}: level {}, SRS stage {} ({})",
-                accounts::provider_name(&l.provider),
-                l.level,
-                l.stage,
-                accounts::stage_name(l.stage)
-            ))
-            .css_classes(["tango-learned"])
+    let mut providers: Vec<&str> = learned.iter().map(|l| l.provider.as_str()).collect();
+    providers.sort();
+    providers.dedup();
+    for provider in providers {
+        let caption = gtk::Label::builder()
+            .label(accounts::provider_name(provider))
+            .css_classes(["dim-label", "tango-wk-caption"])
+            .valign(gtk::Align::Center)
             .build();
-        flow.insert(&chip, -1);
+        flow.insert(&caption, -1);
+        let mut words: Vec<&Learned> = learned
+            .iter()
+            .filter(|l| l.provider == provider && l.kind == Kind::Vocabulary)
+            .collect();
+        words.sort_by_key(|l| (l.text != headword, l.text.clone()));
+        let same = words
+            .windows(2)
+            .all(|w| (w[0].level, w[0].stage) == (w[1].level, w[1].stage));
+        if same && words.len() > 1 {
+            flow.insert(&learned_chip(words[0], headword), -1);
+        } else {
+            for l in words {
+                flow.insert(&learned_chip(l, &l.text), -1);
+            }
+        }
+        let mut kanji: Vec<&Learned> = learned
+            .iter()
+            .filter(|l| l.provider == provider && l.kind == Kind::Kanji)
+            .collect();
+        kanji.sort_by_key(|l| headword.find(l.text.as_str()).unwrap_or(usize::MAX));
+        for l in kanji {
+            flow.insert(&learned_chip(l, &l.text), -1);
+        }
     }
     flow
+}
+
+/// "今日は 3 · Burned", coloured by stage, edged by kind; the tooltip spells it out.
+pub fn learned_chip(l: &Learned, text: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .label(format!("{text} {} · {}", l.level, accounts::stage_name(l.stage)))
+        .tooltip_text(format!(
+            "{} {} on {}: level {}, SRS stage {} ({})",
+            match l.kind {
+                Kind::Kanji => "Kanji",
+                Kind::Vocabulary => "Vocabulary",
+            },
+            l.text,
+            accounts::provider_name(&l.provider),
+            l.level,
+            l.stage,
+            accounts::stage_name(l.stage)
+        ))
+        .css_classes([
+            "tango-learned",
+            accounts::stage_class(l.stage),
+            accounts::kind_class(l.kind),
+        ])
+        .build()
 }
 
 /// What JMdict says about single forms: "猫脊: rarely used kanji form", "ねこぜ: with 猫背 only".

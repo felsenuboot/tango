@@ -28,9 +28,19 @@
   background-color: alpha(@success_bg_color, 0.2); color: @success_color;
 }
 .tango-learned {
-  font-size: 0.8em; font-weight: 700; padding: 1px 8px; border-radius: 99px;
-  background-color: alpha(@purple_3, 0.25);
+  font-size: 0.8em; font-weight: 700; padding: 1px 8px 1px 6px; border-radius: 99px;
+  color: white;
 }
+/* WaniKani's own palette: the SRS stage fills the chip, the item kind is its left edge. */
+.tango-wk-locked { background-color: alpha(currentColor, 0.15); color: inherit; }
+.tango-wk-apprentice { background-color: #dd0093; }
+.tango-wk-guru { background-color: #882d9e; }
+.tango-wk-master { background-color: #294ddb; }
+.tango-wk-enlightened { background-color: #0093dd; }
+.tango-wk-burned { background-color: #434343; }
+.tango-wk-kanji { border-left: 4px solid #ff00aa; }
+.tango-wk-vocabulary { border-left: 4px solid #aa00ff; }
+.tango-wk-caption { font-size: 0.8em; font-weight: 700; }
 .tango-common {
   font-size: 0.75em; font-weight: 700; padding: 1px 8px; border-radius: 99px;
   background-color: alpha(@accent_bg_color, 0.2); color: @accent_color;

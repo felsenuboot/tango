@@ -119,21 +119,10 @@ impl KanjiView {
             .spacing(8)
             .build();
         if let Some(l) = learned {
-            let tag = chip(
-                &format!(
-                    "{} {} · {}",
-                    accounts::provider_name(&l.provider),
-                    l.level,
-                    accounts::stage_name(l.stage)
-                ),
-                &format!(
-                    "Level on {} and SRS stage {}",
-                    accounts::provider_name(&l.provider),
-                    l.stage
-                ),
-            );
-            tag.add_css_class("tango-learned");
-            facts.append(&tag);
+            facts.append(&super::entry_view::learned_chip(
+                l,
+                accounts::provider_name(&l.provider),
+            ));
         }
         if let Some(k) = kanji {
             facts.append(&chip(&format!("{} strokes", k.strokes), "Stroke count"));

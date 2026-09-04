@@ -53,6 +53,26 @@ pub fn stage_name(stage: u8) -> &'static str {
     }
 }
 
+/// The CSS class for a stage, coloured after WaniKani's own palette (`style.css`).
+pub fn stage_class(stage: u8) -> &'static str {
+    match stage {
+        0 => "tango-wk-locked",
+        1..=4 => "tango-wk-apprentice",
+        5 | 6 => "tango-wk-guru",
+        7 => "tango-wk-master",
+        8 => "tango-wk-enlightened",
+        _ => "tango-wk-burned",
+    }
+}
+
+/// The CSS class for an item kind: WaniKani's pink for kanji, purple for vocabulary.
+pub fn kind_class(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Kanji => "tango-wk-kanji",
+        Kind::Vocabulary => "tango-wk-vocabulary",
+    }
+}
+
 /// "Known" means passed: Guru or beyond, which is when WaniKani unlocks what builds on it.
 pub fn is_known(stage: u8) -> bool {
     stage >= 5
