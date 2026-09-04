@@ -400,6 +400,38 @@ impl Database {
         Ok(ordered)
     }
 
+    /// Entries with a kanji form or reading equal to one of `texts`, common first, then by source
+    /// order. Used to verify deinflection candidates and romaji readings.
+    pub fn lookup(&self, texts: &[String], sources: &[String], limit: usize) -> anyhow::Result<Vec<Entry>> {
+        if texts.is_empty() || sources.is_empty() {
+            return Ok(Vec::new());
+        }
+        let priority = format!(
+            "CASE e.source {} ELSE 99 END",
+            (0..sources.len())
+                .map(|i| format!("WHEN ? THEN {i}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let mut values: Vec<Value> = sources.iter().map(|s| Value::Text(s.clone())).collect();
+        values.extend(texts.iter().map(|t| Value::Text(t.clone())));
+        values.extend(sources.iter().map(|s| Value::Text(s.clone())));
+        values.push(Value::Integer(limit as i64));
+        let sql = format!(
+            "SELECT f.entry_id, e.common, {priority} AS prio
+             FROM forms f JOIN entries e ON e.id = f.entry_id
+             WHERE f.text IN ({}) AND e.source IN ({})
+             GROUP BY f.entry_id ORDER BY e.common DESC, prio, f.entry_id LIMIT ?",
+            vec!["?"; texts.len()].join(","),
+            vec!["?"; sources.len()].join(",")
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let ids: Vec<i64> = stmt
+            .query_map(params_from_iter(values), |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        self.load(&ids)
+    }
+
     /// Headword/reading search for Japanese input, gloss search otherwise, limited to `sources`.
     /// Exact matches first, then common words, then the sources in the order given, then short.
     pub fn search(&self, query: &str, limit: usize, sources: &[String]) -> anyhow::Result<Vec<Entry>> {
@@ -557,6 +589,16 @@ mod tests {
         assert_eq!((both[0].source.as_str(), both[0].id), ("other", 7));
         let both = db.search("cat", 100, &["jmdict".into(), "other".into()]).unwrap();
         assert_eq!((both[0].source.as_str(), both[0].id), ("jmdict", 1467640));
+    }
+
+    #[test]
+    fn lookup_is_exact() {
+        let db = sample_db();
+        let found = db
+            .lookup(&["ねこ".into(), "書く".into()], &jmdict_only(), 10)
+            .unwrap();
+        assert_eq!(ids(&found), [1467640, 1236120]); // both common; source order, then id
+        assert!(db.lookup(&["ね".into()], &jmdict_only(), 10).unwrap().is_empty());
     }
 
     #[test]

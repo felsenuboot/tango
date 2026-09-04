@@ -4,6 +4,7 @@
 //!   dict/      readers for the dictionary source files and where to download them
 //!   model.rs   `Entry` and `Sense`, the plain data every other module passes around
 //!   store/     the SQLite database: import, lookup and search
+//!   search/    the search pipeline: romaji to kana, deinflection, then the database
 //!   ui/        the libadwaita widgets
 //!   config.rs  the JSON preferences file and the XDG directories
 //!   autopilot.rs  scripted UI driving for screenshots and smoke tests
@@ -12,6 +13,7 @@ mod autopilot;
 mod config;
 mod dict;
 mod model;
+mod search;
 mod store;
 mod ui;
 

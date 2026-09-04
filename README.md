@@ -16,8 +16,10 @@ Offline, with English and German glosses side by side.
 
 - **JMdict import.** Download the file from inside the app (about 22 MB) or
   import a local copy. ~220k entries land in a local SQLite file in seconds.
-- **Search.** Type kana or kanji for a headword/reading lookup, or an English
-  or German word for a gloss lookup. Exact matches and common words come first.
+- **Search.** Type kana, kanji or romaji for a headword/reading lookup, or an
+  English or German word for a gloss lookup. Inflected forms find their
+  dictionary entry with the chain shown (書きました → 書く: polite, past).
+  Exact matches and common words come first.
 - **Entries.** Headword, readings, alternative spellings, every meaning with
   its parts of speech and the translations per language in the order you
   prefer. JMdict ships the German, Dutch and French glosses as separate
@@ -34,7 +36,6 @@ Offline, with English and German glosses side by side.
 - Wadoku (German, with pitch accent) next to JMdict
 - Kanji view: KANJIDIC details, KanjiVG stroke order, radicals
 - Example sentences from Tatoeba
-- Romaji input, deinflection of verbs and adjectives
 - FTS5 index for faster gloss search
 
 Everything above plus the WaniKani, MaruMori, Kitsun.io and Takoboto

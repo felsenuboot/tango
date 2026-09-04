@@ -49,7 +49,10 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/model.rs` | `Entry`, `Sense`, `Gloss`: the plain data everything else passes around |
 | `src/dict/jmdict.rs` | streaming JMdict XML reader, expands the DTD entities |
 | `src/dict/sources.rs` | the source registry (id, name, URL, file, licence) and the download helper |
-| `src/store/db.rs` | SQLite schema (v2: `sources`, entries per source), insert, load, search |
+| `src/search/mod.rs` | the search pipeline: romaji to kana, deinflection, database, hits with notes |
+| `src/search/romaji.rs` | romaji → hiragana/katakana (Hepburn and the usual typing variants) |
+| `src/search/deinflect.rs` | rule table from inflected verbs and adjectives back to dictionary forms |
+| `src/store/db.rs` | SQLite schema (v2: `sources`, entries per source), insert, load, lookup, search |
 | `src/store/import.rs` | the import, download and remove jobs the UI runs on a worker thread |
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
@@ -78,6 +81,19 @@ through the `source` column; `(source, seq)` is unique, `seq` being the
 source's own number (JMdict `ent_seq`). Search takes the enabled sources in the
 order from the config file and ranks exact matches, then common words, then
 source order, then length.
+
+## Search
+
+`search::run` takes the query apart before the database sees it. Japanese text
+runs the prefix search and then `deinflect::deinflect`, a rule table in the
+style of Yomitan's: every rule strips a suffix and says what kind of word it
+applies to and what kind comes out (ichidan, godan, i-adjective, 来る, する).
+Candidates are generated blindly, at most six rules deep, and verified with one
+exact lookup plus a part-of-speech check, so an over-eager rule costs a lookup,
+never a wrong result. The chain is shown in the result row, innermost form
+first ("書かれました → 書く: passive, polite, past"). Text that is romaji
+throughout is converted to hiragana and katakana as well; exact reading
+matches come first, then the gloss search, then the deinflected readings.
 
 ## JMdict and its languages
 

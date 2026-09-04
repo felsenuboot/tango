@@ -15,6 +15,7 @@ use crate::APP_NAME;
 use crate::config::{Config, cache_dir};
 use crate::dict::sources::{self, Source};
 use crate::model::Entry;
+use crate::search::{self, Hit};
 use crate::store::db::Database;
 use crate::store::import;
 
@@ -35,8 +36,8 @@ pub struct Window {
     split: adw::NavigationSplitView,
     toasts: adw::ToastOverlay,
     entry_view: EntryView,
-    /// The entries behind the result rows, by row index.
-    found: RefCell<Vec<Entry>>,
+    /// The results behind the rows, by row index.
+    found: RefCell<Vec<Hit>>,
     current: RefCell<Option<Entry>>,
     search_timer: Cell<Option<glib::SourceId>>,
 }
@@ -307,8 +308,8 @@ impl Window {
 
     fn run_search(&self, query: &str) {
         let enabled = self.config.borrow().enabled_sources();
-        let entries = match self.db.search(query, RESULT_LIMIT, &enabled) {
-            Ok(entries) => entries,
+        let hits = match search::run(&self.db, query, RESULT_LIMIT, &enabled) {
+            Ok(hits) => hits,
             Err(e) => {
                 log::error!("search failed: {e:#}");
                 Vec::new()
@@ -316,11 +317,11 @@ impl Window {
         };
         let langs = self.config.borrow().gloss_languages.clone();
         self.results.remove_all();
-        for e in &entries {
-            self.results.append(&result_row(e, &langs));
+        for hit in &hits {
+            self.results.append(&result_row(hit, &langs));
         }
-        let any = !entries.is_empty();
-        *self.found.borrow_mut() = entries;
+        let any = !hits.is_empty();
+        *self.found.borrow_mut() = hits;
         if any && !query.trim().is_empty() {
             self.select_result(0);
         }
@@ -333,7 +334,7 @@ impl Window {
     }
 
     fn on_row_selected(&self, index: i32) {
-        let entry = self.found.borrow().get(index as usize).cloned();
+        let entry = self.found.borrow().get(index as usize).map(|h| h.entry.clone());
         if let Some(entry) = entry {
             self.show_entry(entry);
             if self.split.is_collapsed() {
@@ -465,7 +466,8 @@ impl Window {
     }
 }
 
-fn result_row(entry: &Entry, langs: &[String]) -> adw::ActionRow {
+fn result_row(hit: &Hit, langs: &[String]) -> adw::ActionRow {
+    let entry = &hit.entry;
     let mut title = glib::markup_escape_text(entry.headword()).to_string();
     if !entry.kanji.is_empty() && !entry.reading().is_empty() {
         title.push_str(&format!(
@@ -473,13 +475,18 @@ fn result_row(entry: &Entry, langs: &[String]) -> adw::ActionRow {
             glib::markup_escape_text(entry.reading())
         ));
     }
+    // A deinflected match says how it was reached above the gloss.
+    let mut subtitle = glib::markup_escape_text(entry.summary(langs)).to_string();
+    if let Some(note) = &hit.note {
+        subtitle = format!("<i>{}</i>\n{subtitle}", glib::markup_escape_text(note));
+    }
     let row = adw::ActionRow::builder()
         .activatable(true)
         .use_markup(true)
         .title(&title)
-        .subtitle(glib::markup_escape_text(entry.summary(langs)).as_str())
+        .subtitle(&subtitle)
         .title_lines(1)
-        .subtitle_lines(1)
+        .subtitle_lines(if hit.note.is_some() { 2 } else { 1 })
         .build();
     if entry.common {
         let tag = gtk::Label::builder()
