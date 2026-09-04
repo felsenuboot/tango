@@ -32,6 +32,8 @@ pub struct Window {
     db: Rc<Database>,
     db_path: PathBuf,
     results: gtk::ListBox,
+    /// The "No results" page under the list; its description carries search hints.
+    no_results: adw::StatusPage,
     stack: gtk::Stack,
     split: adw::NavigationSplitView,
     toasts: adw::ToastOverlay,
@@ -79,13 +81,12 @@ impl Window {
             .selection_mode(gtk::SelectionMode::Single)
             .css_classes(["navigation-sidebar"])
             .build();
-        results.set_placeholder(Some(
-            &adw::StatusPage::builder()
-                .title("No results")
-                .icon_name("edit-find-symbolic")
-                .vexpand(true)
-                .build(),
-        ));
+        let no_results = adw::StatusPage::builder()
+            .title("No results")
+            .icon_name("edit-find-symbolic")
+            .vexpand(true)
+            .build();
+        results.set_placeholder(Some(&no_results));
         let scroller = gtk::ScrolledWindow::builder()
             .child(&results)
             .vexpand(true)
@@ -179,6 +180,7 @@ impl Window {
             db,
             db_path,
             results,
+            no_results,
             stack,
             split,
             toasts,
@@ -199,6 +201,22 @@ impl Window {
             #[weak]
             this,
             move |_| this.select_result(0)
+        ));
+        // A sentence cut into words gets a header above the first row of each word.
+        this.results.set_header_func(clone!(
+            #[weak]
+            this,
+            move |row, before| {
+                let found = this.found.borrow();
+                let group = found.get(row.index() as usize).and_then(|h| h.group.as_deref());
+                let previous = before
+                    .and_then(|b| found.get(b.index() as usize))
+                    .and_then(|h| h.group.as_deref());
+                match group {
+                    Some(word) if group != previous => row.set_header(Some(&group_header(word))),
+                    _ => row.set_header(None::<&gtk::Widget>),
+                }
+            }
         ));
         this.results.connect_row_selected(clone!(
             #[weak]
@@ -308,20 +326,28 @@ impl Window {
 
     fn run_search(&self, query: &str) {
         let enabled = self.config.borrow().enabled_sources();
-        let hits = match search::run(&self.db, query, RESULT_LIMIT, &enabled) {
-            Ok(hits) => hits,
+        let started = std::time::Instant::now();
+        let outcome = match search::run(&self.db, query, RESULT_LIMIT, &enabled) {
+            Ok(outcome) => outcome,
             Err(e) => {
                 log::error!("search failed: {e:#}");
-                Vec::new()
+                search::Outcome::default()
             }
         };
+        log::debug!(
+            "search {query:?}: {} hits in {} ms",
+            outcome.hits.len(),
+            started.elapsed().as_millis()
+        );
         let langs = self.config.borrow().gloss_languages.clone();
+        self.no_results.set_description(outcome.hint.as_deref());
+        let any = !outcome.hits.is_empty();
         self.results.remove_all();
-        for hit in &hits {
+        *self.found.borrow_mut() = outcome.hits;
+        for hit in self.found.borrow().iter() {
             self.results.append(&result_row(hit, &langs));
         }
-        let any = !hits.is_empty();
-        *self.found.borrow_mut() = hits;
+        self.results.invalidate_headers();
         if any && !query.trim().is_empty() {
             self.select_result(0);
         }
@@ -464,6 +490,17 @@ impl Window {
             }
         });
     }
+}
+
+fn group_header(word: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .label(word)
+        .xalign(0.0)
+        .margin_start(12)
+        .margin_top(12)
+        .margin_bottom(4)
+        .css_classes(["heading"])
+        .build()
 }
 
 fn result_row(hit: &Hit, langs: &[String]) -> adw::ActionRow {

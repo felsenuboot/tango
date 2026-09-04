@@ -121,6 +121,8 @@ pub struct Candidate {
 }
 
 const MAX_DEPTH: usize = 6;
+/// Enough for any real chain; keeps a long pasted sentence from exploding.
+const MAX_CANDIDATES: usize = 300;
 
 /// All dictionary forms `text` could be an inflection of. The text itself is not included.
 pub fn deinflect(text: &str) -> Vec<Candidate> {
@@ -135,6 +137,9 @@ pub fn deinflect(text: &str) -> Vec<Candidate> {
         if current.reasons.len() >= MAX_DEPTH {
             continue;
         }
+        if out.len() >= MAX_CANDIDATES {
+            break;
+        }
         let mut step = |word: String, kinds: u8, reason: &'static str| {
             if word.is_empty() || word == text {
                 return;
@@ -147,8 +152,10 @@ pub fn deinflect(text: &str) -> Vec<Candidate> {
                 queue.push(next);
             }
         };
+        // A bare stem is something the user typed, never the result of another rule.
+        let top_level = current.reasons.is_empty();
         for rule in RULES {
-            if current.kinds & rule.input == 0 {
+            if current.kinds & rule.input == 0 || (rule.reason == "stem" && !top_level) {
                 continue;
             }
             if let Some(stem) = current.word.strip_suffix(rule.from) {
@@ -174,7 +181,7 @@ pub fn deinflect(text: &str) -> Vec<Candidate> {
                 (i.to_string(), u, ANY, "stem"),
             ];
             for (from, to, input, reason) in godan {
-                if current.kinds & input == 0 {
+                if current.kinds & input == 0 || (reason == "stem" && !top_level) {
                     continue;
                 }
                 let voiced = (te == "い" && u == "ぐ") || (te == "ん");
@@ -237,6 +244,13 @@ mod tests {
         assert_eq!(chain("読みたい", "読む"), ["-tai (want to)"]);
         assert_eq!(chain("食べ", "食べる"), ["stem"]);
         assert_eq!(chain("書き", "書く"), ["stem"]);
+    }
+
+    #[test]
+    fn a_sentence_does_not_explode() {
+        let n = deinflect("今日は天気がいいですね、猫が魚を食べました").len();
+        assert!(n <= MAX_CANDIDATES, "{n} candidates");
+        assert!(deinflect("食べました").len() < 60);
     }
 
     #[test]

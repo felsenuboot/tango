@@ -18,8 +18,10 @@ Offline, with English and German glosses side by side.
   import a local copy. ~220k entries land in a local SQLite file in seconds.
 - **Search.** Type kana, kanji or romaji for a headword/reading lookup, or an
   English or German word for a gloss lookup. Inflected forms find their
-  dictionary entry with the chain shown (書きました → 書く: polite, past).
-  Exact matches and common words come first.
+  dictionary entry with the chain shown (書きました → 書く: polite, past); a
+  pasted sentence is cut into words. `#common`, `#verb`, `#noun` and friends
+  filter, `"quotes"` mean exactly that, `*` and `?` are wildcards. Exact
+  matches and common words come first.
 - **Entries.** Headword, readings, alternative spellings, every meaning with
   its parts of speech and the translations per language in the order you
   prefer. JMdict ships the German, Dutch and French glosses as separate

@@ -83,6 +83,36 @@ fn like_escape(text: &str) -> String {
     text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
+/// GLOB is case-sensitive, so a `text GLOB 'x*'` prefix search uses the plain index (LIKE would
+/// need a NOCASE column and otherwise scans). Its metacharacters are bracketed away.
+/// The form queries also say `INDEXED BY forms_text`: without statistics the planner prefers
+/// walking `entries` by source and probing forms per entry, 100 ms instead of under one.
+fn glob_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '*' | '?' | '[' | ']' => {
+                out.push('[');
+                out.push(c);
+                out.push(']');
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// `CASE e.source WHEN ? THEN 0 WHEN ? THEN 1 … END`: ranks by the order of the source list.
+fn source_priority(n: usize) -> String {
+    format!(
+        "CASE e.source {} ELSE 99 END",
+        (0..n)
+            .map(|i| format!("WHEN ? THEN {i}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
 /// An FTS5 query for typed text: every word quoted, the last one as a prefix, so "domestic ca"
 /// matches "domestic cat". `None` when there is no word in it.
 fn fts_query(text: &str) -> Option<String> {
@@ -464,11 +494,85 @@ impl Database {
         values.push(Value::Integer(limit as i64));
         let sql = format!(
             "SELECT f.entry_id, e.common, {priority} AS prio
-             FROM forms f JOIN entries e ON e.id = f.entry_id
+             FROM forms f INDEXED BY forms_text JOIN entries e ON e.id = f.entry_id
              WHERE f.text IN ({}) AND e.source IN ({})
              GROUP BY f.entry_id ORDER BY e.common DESC, prio, f.entry_id LIMIT ?",
             vec!["?"; texts.len()].join(","),
             vec!["?"; sources.len()].join(",")
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let ids: Vec<i64> = stmt
+            .query_map(params_from_iter(values), |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        self.load(&ids)
+    }
+
+    /// Wildcard search: `*` is any run of characters, `?` one character. Japanese text is matched
+    /// against whole kanji forms and readings, other text anywhere inside a gloss. A LIKE scan,
+    /// so slower than the indexed searches; only used when the user typed a wildcard.
+    pub fn search_pattern(&self, text: &str, limit: usize, sources: &[String]) -> anyhow::Result<Vec<Entry>> {
+        if text.is_empty() || sources.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut pattern: String = like_escape(text).replace('*', "%").replace('?', "_");
+        if !is_japanese(text) {
+            pattern = format!("%{pattern}%");
+        }
+        let priority = source_priority(sources.len());
+        let members = vec!["?"; sources.len()].join(",");
+        let mut values: Vec<Value> = sources.iter().map(|s| Value::Text(s.clone())).collect();
+        values.push(Value::Text(pattern));
+        values.extend(sources.iter().map(|s| Value::Text(s.clone())));
+        values.push(Value::Integer(limit as i64));
+        let sql = if is_japanese(text) {
+            format!(
+                "SELECT f.entry_id, e.common, {priority} AS prio, min(length(f.text)) AS len
+                 FROM forms f INDEXED BY forms_text JOIN entries e ON e.id = f.entry_id
+                 WHERE f.text LIKE ? ESCAPE '\\' AND e.source IN ({members})
+                 GROUP BY f.entry_id ORDER BY e.common DESC, prio, len, f.entry_id LIMIT ?"
+            )
+        } else {
+            format!(
+                "SELECT s.entry_id, e.common, {priority} AS prio, min(length(g.text)) AS len
+                 FROM glosses g JOIN senses s ON s.id = g.sense_id JOIN entries e ON e.id = s.entry_id
+                 WHERE g.text LIKE ? ESCAPE '\\' AND e.source IN ({members})
+                 GROUP BY s.entry_id ORDER BY e.common DESC, prio, len, s.entry_id LIMIT ?"
+            )
+        };
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let ids: Vec<i64> = stmt
+            .query_map(params_from_iter(values), |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        self.load(&ids)
+    }
+
+    /// Entries with a gloss equal to `text` (case-insensitive), common first.
+    pub fn search_gloss_exact(
+        &self,
+        text: &str,
+        limit: usize,
+        sources: &[String],
+    ) -> anyhow::Result<Vec<Entry>> {
+        let Some(fts) = fts_query(text).map(|q| q.trim_end_matches('*').to_string()) else {
+            return Ok(Vec::new());
+        };
+        if sources.is_empty() {
+            return Ok(Vec::new());
+        }
+        let priority = source_priority(sources.len());
+        let members = vec!["?"; sources.len()].join(",");
+        let mut values: Vec<Value> = sources.iter().map(|s| Value::Text(s.clone())).collect();
+        values.push(Value::Text(fts));
+        values.extend(sources.iter().map(|s| Value::Text(s.clone())));
+        values.push(Value::Text(text.to_lowercase()));
+        values.push(Value::Integer(limit as i64));
+        let sql = format!(
+            "SELECT s.entry_id, e.common, {priority} AS prio
+             FROM gloss_fts f JOIN glosses g ON g.rowid = f.rowid
+                  JOIN senses s ON s.id = g.sense_id JOIN entries e ON e.id = s.entry_id
+             WHERE gloss_fts MATCH ? AND e.source IN ({members})
+             GROUP BY s.entry_id HAVING max(lower(g.text) = ?) = 1
+             ORDER BY e.common DESC, prio, s.entry_id LIMIT ?"
         );
         let mut stmt = self.conn.prepare_cached(&sql)?;
         let ids: Vec<i64> = stmt
@@ -485,27 +589,21 @@ impl Database {
             return Ok(Vec::new());
         }
         // Positional `?` parameters fill in query order: first the ones in the SELECT list.
-        let priority = format!(
-            "CASE e.source {} ELSE 99 END",
-            (0..sources.len())
-                .map(|i| format!("WHEN ? THEN {i}"))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        let priority = source_priority(sources.len());
         let members = vec!["?"; sources.len()].join(",");
         let source_params: Vec<Value> = sources.iter().map(|s| Value::Text(s.clone())).collect();
         let mut values: Vec<Value> = Vec::new();
         let sql = if is_japanese(q) {
             values.push(Value::Text(q.to_string()));
             values.extend(source_params.iter().cloned());
-            values.push(Value::Text(format!("{}%", like_escape(q))));
+            values.push(Value::Text(format!("{}*", glob_escape(q))));
             values.extend(source_params.iter().cloned());
             values.push(Value::Integer(limit as i64));
             format!(
                 "SELECT f.entry_id, max(f.text = ?) AS exact, e.common, {priority} AS prio,
                         min(length(f.text)) AS len
-                 FROM forms f JOIN entries e ON e.id = f.entry_id
-                 WHERE f.text LIKE ? ESCAPE '\\' AND e.source IN ({members})
+                 FROM forms f INDEXED BY forms_text JOIN entries e ON e.id = f.entry_id
+                 WHERE f.text GLOB ? AND e.source IN ({members})
                  GROUP BY f.entry_id ORDER BY exact DESC, e.common DESC, prio, len, f.entry_id LIMIT ?"
             )
         } else {
@@ -624,6 +722,47 @@ mod tests {
             2000001
         );
         assert_eq!(db.search("grune", 100, &jmdict_only()).unwrap()[0].id, 2000001); // diacritics folded
+    }
+
+    #[test]
+    fn pattern_and_exact_searches() {
+        let db = sample_db();
+        assert_eq!(
+            ids(&db.search_pattern("猫?", 100, &jmdict_only()).unwrap()),
+            [2000002]
+        ); // 猫背
+        assert_eq!(
+            db.search_pattern("*じゃらし", 100, &jmdict_only()).unwrap()[0].id,
+            2000001
+        );
+        let wild = ids(&db.search_pattern("c?t", 100, &jmdict_only()).unwrap());
+        assert!(wild.contains(&1467640)); // anywhere in a gloss: "cat (esp. …)", "offensichtlich"
+        assert!(db.search_pattern("100%", 100, &jmdict_only()).unwrap().is_empty());
+        assert_eq!(
+            db.search_gloss_exact("Katze", 100, &jmdict_only()).unwrap()[0].id,
+            1467640
+        );
+        assert_eq!(
+            db.search_gloss_exact("obvious", 100, &jmdict_only()).unwrap()[0].id,
+            1000225
+        );
+        assert!(
+            db.search_gloss_exact("cat", 100, &jmdict_only())
+                .unwrap()
+                .is_empty()
+        ); // only "cat (esp. …)"
+        assert!(
+            db.search_gloss_exact("ca", 100, &jmdict_only())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn glob_metacharacters_are_literal() {
+        assert_eq!(glob_escape("猫*[x]?"), "猫[*][[]x[]][?]");
+        let db = sample_db();
+        assert!(db.search("猫*", 100, &jmdict_only()).unwrap().is_empty());
     }
 
     #[test]

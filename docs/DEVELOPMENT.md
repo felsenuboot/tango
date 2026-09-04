@@ -52,6 +52,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/dict/jmdict.rs` | streaming JMdict XML reader, expands the DTD entities |
 | `src/dict/sources.rs` | the source registry (id, name, URL, file, licence) and the download helper |
 | `src/search/mod.rs` | the search pipeline: romaji to kana, deinflection, database, hits with notes |
+| `src/search/query.rs` | the box syntax: `#tags`, `"exact"` quotes, `*`/`?` wildcards |
 | `src/search/romaji.rs` | romaji → hiragana/katakana (Hepburn and the usual typing variants) |
 | `src/search/deinflect.rs` | rule table from inflected verbs and adjectives back to dictionary forms |
 | `src/store/db.rs` | SQLite schema (v3: `sources`, entries per source, FTS5 over glosses), insert, load, lookup, search |
@@ -96,6 +97,16 @@ never a wrong result. The chain is shown in the result row, innermost form
 first ("書かれました → 書く: passive, polite, past"). Text that is romaji
 throughout is converted to hiragana and katakana as well; exact reading
 matches come first, then the gloss search, then the deinflected readings.
+
+`query::parse` takes `#tags` (common, noun, verb, adjective, adverb, expression,
+counter, particle, prefix, suffix, pronoun, conjunction, interjection,
+abbreviation, kana), `"quotes"` and `*`/`?` wildcards off the text. Tags filter
+the hits after the database (fetched four times over to compensate); quotes
+mean a whole gloss or an exact form; wildcards run a LIKE pattern search, the
+one slow path, only when typed. Japanese text that matches nothing as a whole
+is cut into words, longest dictionary match from the left with inflections,
+and the result list shows a header per word (`Hit::group`). Unknown tags do
+not filter; they show up as a hint under "No results".
 
 The gloss search is an FTS5 query over `gloss_fts`, an external-content index
 on `glosses.text` with the `unicode61` tokenizer and diacritics removed, so
