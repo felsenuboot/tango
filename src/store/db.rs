@@ -1,6 +1,6 @@
 //! The dictionary database: one SQLite file, plain SQL.
 //!
-//! Schema v6: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
+//! Schema v7: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
 //! source and the source's own number, with its pitch accent), `forms` (kanji and readings),
 //! `senses`, `glosses`, the kanji tables (`kanji` from KANJIDIC2, `kanji_strokes` from KanjiVG,
 //! `kanji_radicals` from RADKFILE), the Tatoeba tables (`sentences`, `sentence_links`,
@@ -25,7 +25,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::model::{Entry, Gloss, Kanji, Radical, Sense, Sentence, SentenceWord, Strokes};
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS forms (
     entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
     kind TEXT NOT NULL,      -- 'k' kanji form, 'r' reading
     pos INTEGER NOT NULL,    -- order within the entry
-    text TEXT NOT NULL
+    text TEXT NOT NULL,
+    info TEXT NOT NULL DEFAULT '',    -- ke_inf / re_inf tags, newline-separated
+    restr TEXT NOT NULL DEFAULT ''    -- re_restr: the kanji forms a reading goes with
 );
 CREATE TABLE IF NOT EXISTS senses (
     id INTEGER PRIMARY KEY,
@@ -55,7 +57,13 @@ CREATE TABLE IF NOT EXISTS senses (
     pos INTEGER NOT NULL,
     parts TEXT NOT NULL DEFAULT '',   -- parts of speech, newline-separated
     misc TEXT NOT NULL DEFAULT '',
-    fields TEXT NOT NULL DEFAULT ''
+    fields TEXT NOT NULL DEFAULT '',
+    info TEXT NOT NULL DEFAULT '',    -- s_inf notes
+    dial TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL DEFAULT '',  -- lsource, already readable
+    xref TEXT NOT NULL DEFAULT '',
+    ant TEXT NOT NULL DEFAULT '',
+    stag TEXT NOT NULL DEFAULT ''     -- stagk / stagr
 );
 CREATE TABLE IF NOT EXISTS glosses (
     sense_id INTEGER NOT NULL REFERENCES senses(id) ON DELETE CASCADE,
@@ -851,20 +859,30 @@ impl Database {
         {
             let mut ins_entry = tx
                 .prepare_cached("INSERT INTO entries (source, seq, common, pitch) VALUES (?1, ?2, ?3, ?4)")?;
-            let mut ins_form = tx.prepare_cached("INSERT INTO forms VALUES (?1, ?2, ?3, ?4)")?;
+            let mut ins_form = tx.prepare_cached("INSERT INTO forms VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
             let mut ins_sense = tx.prepare_cached(
-                "INSERT INTO senses (entry_id, pos, parts, misc, fields) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO senses (entry_id, pos, parts, misc, fields, info, dial, origin, xref, ant, stag)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )?;
             let mut ins_gloss = tx.prepare_cached("INSERT INTO glosses VALUES (?1, ?2, ?3, ?4)")?;
             for e in entries {
                 let pitch = e.pitch.iter().map(u8::to_string).collect::<Vec<_>>().join(",");
                 ins_entry.execute(params![e.source, e.id, e.common as i64, pitch])?;
                 let entry_id = tx.last_insert_rowid();
+                let joined =
+                    |lists: &[Vec<String>], i: usize| lists.get(i).map(|l| l.join(SEP)).unwrap_or_default();
                 for (i, k) in e.kanji.iter().enumerate() {
-                    ins_form.execute(params![entry_id, "k", i as i64, k])?;
+                    ins_form.execute(params![entry_id, "k", i as i64, k, joined(&e.kanji_info, i), ""])?;
                 }
                 for (i, r) in e.readings.iter().enumerate() {
-                    ins_form.execute(params![entry_id, "r", i as i64, r])?;
+                    ins_form.execute(params![
+                        entry_id,
+                        "r",
+                        i as i64,
+                        r,
+                        joined(&e.reading_info, i),
+                        joined(&e.reading_for, i)
+                    ])?;
                 }
                 for (i, s) in e.senses.iter().enumerate() {
                     ins_sense.execute(params![
@@ -872,7 +890,13 @@ impl Database {
                         i as i64,
                         s.pos.join(SEP),
                         s.misc.join(SEP),
-                        s.fields.join(SEP)
+                        s.fields.join(SEP),
+                        s.info.join(SEP),
+                        s.dialects.join(SEP),
+                        s.origins.join(SEP),
+                        s.see_also.join(SEP),
+                        s.antonyms.join(SEP),
+                        s.only_for.join(SEP)
                     ])?;
                     let sense_id = tx.last_insert_rowid();
                     for (j, g) in s.glosses.iter().enumerate() {
@@ -939,22 +963,28 @@ impl Database {
         let index: HashMap<i64, usize> = entries.iter().enumerate().map(|(i, e)| (e.0, i)).collect();
 
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT entry_id, kind, text FROM forms WHERE entry_id IN ({marks}) ORDER BY entry_id, kind, pos"
+            "SELECT entry_id, kind, text, info, restr FROM forms WHERE entry_id IN ({marks})
+             ORDER BY entry_id, kind, pos"
         ))?;
         for row in stmt.query_map(params_from_iter(ids), |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
             ))
         })? {
-            let (id, kind, text) = row?;
+            let (id, kind, text, info, restr) = row?;
             if let Some(&i) = index.get(&id) {
                 let e = &mut entries[i].1;
                 if kind == "k" {
-                    e.kanji.push(text)
+                    e.kanji.push(text);
+                    e.kanji_info.push(split(&info));
                 } else {
-                    e.readings.push(text)
+                    e.readings.push(text);
+                    e.reading_info.push(split(&info));
+                    e.reading_for.push(split(&restr));
                 }
             }
         }
@@ -962,18 +992,28 @@ impl Database {
         // (sense rowid, index into entries, index into that entry's senses)
         let mut sense_ids: Vec<(i64, usize, usize)> = Vec::new();
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT id, entry_id, parts, misc, fields FROM senses WHERE entry_id IN ({marks}) ORDER BY entry_id, pos"
+            "SELECT id, entry_id, parts, misc, fields, info, dial, origin, xref, ant, stag FROM senses
+             WHERE entry_id IN ({marks}) ORDER BY entry_id, pos"
         ))?;
         for row in stmt.query_map(params_from_iter(ids), |r| {
+            let text = |i: usize| r.get::<_, String>(i);
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, i64>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, String>(4)?,
+                [
+                    text(2)?,
+                    text(3)?,
+                    text(4)?,
+                    text(5)?,
+                    text(6)?,
+                    text(7)?,
+                    text(8)?,
+                    text(9)?,
+                    text(10)?,
+                ],
             ))
         })? {
-            let (sid, eid, parts, misc, fields) = row?;
+            let (sid, eid, [parts, misc, fields, info, dial, origin, xref, ant, stag]) = row?;
             if let Some(&i) = index.get(&eid) {
                 let e = &mut entries[i].1;
                 e.senses.push(Sense {
@@ -981,6 +1021,12 @@ impl Database {
                     misc: split(&misc),
                     fields: split(&fields),
                     glosses: Vec::new(),
+                    info: split(&info),
+                    dialects: split(&dial),
+                    origins: split(&origin),
+                    see_also: split(&xref),
+                    antonyms: split(&ant),
+                    only_for: split(&stag),
                 });
                 sense_ids.push((sid, i, e.senses.len() - 1));
             }
@@ -1484,7 +1530,7 @@ mod tests {
             .query_row("SELECT count(*) FROM glosses", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stale, 0);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("6"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("7"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1510,7 +1556,7 @@ mod tests {
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
         assert_eq!(db.entry_count().unwrap(), 7);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("6"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("7"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

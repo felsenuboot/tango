@@ -7,6 +7,9 @@
 <!ENTITY uk "word usually written using kana alone">
 <!ENTITY comp "computing">
 <!ENTITY adj-i "adjective (keiyoushi)">
+<!ENTITY rK "rarely used kanji form">
+<!ENTITY gikun "gikun (meaning as reading) or jukujikun (special kanji reading)">
+<!ENTITY ksb "Kansai-ben">
 ]>
 <!-- JMdict created: 2024-01-01 -->
 <JMdict>
@@ -39,8 +42,9 @@
 <entry>
 <ent_seq>2000002</ent_seq>
 <k_ele><keb>猫背</keb></k_ele>
-<r_ele><reb>ねこぜ</reb></r_ele>
-<sense><pos>&n;</pos><gloss>bent back</gloss><gloss>hunchback</gloss><gloss>stoop</gloss><gloss xml:lang="ger">Buckel</gloss><gloss xml:lang="ger">runder Rücken</gloss></sense>
+<k_ele><keb>猫脊</keb><ke_inf>&rK;</ke_inf></k_ele>
+<r_ele><reb>ねこぜ</reb><re_restr>猫背</re_restr><re_inf>&gikun;</re_inf></r_ele>
+<sense><stagk>猫背</stagk><pos>&n;</pos><xref>猫・ねこ・1</xref><ant>背筋・せすじ</ant><s_inf>often of a person</s_inf><lsource xml:lang="eng" ls_wasei="y">stoop</lsource><lsource xml:lang="fre"/><dial>&ksb;</dial><gloss>bent back</gloss><gloss>hunchback</gloss><gloss>stoop</gloss><gloss xml:lang="ger">Buckel</gloss><gloss xml:lang="ger">runder Rücken</gloss></sense>
 </entry>
 <entry>
 <ent_seq>2000003</ent_seq>

@@ -24,7 +24,9 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   words; `#common`, `#verb` and friends filter; `"quotes"` and `*` wildcards
   do what they say. Everything answers in a few milliseconds.
 - 📖 **Two dictionaries.** JMdict from the EDRDG, with its German, Dutch and
-  French glosses lined up with the English meanings; Wadoku from wadoku.de
+  French glosses lined up with the English meanings, and every detail it
+  carries: usage and field tags, dialects, notes, loanword origins, "see
+  also" links, and what it says about each form; Wadoku from wadoku.de
   with pitch accent shown as ⓪ ① ② beside the reading. Search covers both,
   in the order you set.
 - 💬 **Example sentences.** Tatoeba sentences under every entry that has

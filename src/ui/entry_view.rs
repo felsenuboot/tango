@@ -4,23 +4,7 @@ use adw::prelude::*;
 use gtk::glib;
 
 use crate::dict::sources;
-use crate::model::{Entry, LanguageBlock, Sense, Sentence};
-
-fn lang_name(lang: &str) -> String {
-    match lang {
-        "eng" => "English",
-        "ger" | "deu" => "German",
-        "dut" => "Dutch",
-        "fre" => "French",
-        "rus" => "Russian",
-        "spa" => "Spanish",
-        "hun" => "Hungarian",
-        "slv" => "Slovenian",
-        "swe" => "Swedish",
-        other => return other.to_uppercase(),
-    }
-    .to_string()
-}
+use crate::model::{Entry, LanguageBlock, Sense, Sentence, language_name};
 
 pub fn lang_label(lang: &str) -> String {
     match lang {
@@ -50,6 +34,7 @@ fn label(text: &str, css: &[&str]) -> gtk::Label {
 
 type KanjiCallback = std::rc::Rc<std::cell::RefCell<Option<Box<dyn Fn(char)>>>>;
 type MoreCallback = std::rc::Rc<std::cell::RefCell<Option<Box<dyn Fn()>>>>;
+type RefCallback = std::rc::Rc<std::cell::RefCell<Option<Box<dyn Fn(&str)>>>>;
 
 pub struct EntryView {
     root: gtk::ScrolledWindow,
@@ -58,6 +43,8 @@ pub struct EntryView {
     on_kanji: KanjiCallback,
     /// "Show all N" under the example sentences.
     on_more: MoreCallback,
+    /// A "See also" or "Antonym" reference was clicked; gets the raw JMdict text ("猫・ねこ・1").
+    on_ref: RefCallback,
 }
 
 pub fn is_kanji(c: char) -> bool {
@@ -85,7 +72,12 @@ impl EntryView {
             body,
             on_kanji: Default::default(),
             on_more: Default::default(),
+            on_ref: Default::default(),
         }
+    }
+
+    pub fn connect_ref(&self, f: impl Fn(&str) + 'static) {
+        *self.on_ref.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn connect_more(&self, f: impl Fn() + 'static) {
@@ -182,10 +174,15 @@ impl EntryView {
             let also = format!("Also written {}", entry.kanji[1..].join("、"));
             self.body.append(&label(&also, &["dim-label"]));
         }
+        let notes = form_notes(entry);
+        if !notes.is_empty() {
+            self.body
+                .append(&label(&notes.join("\n"), &["dim-label", "caption"]));
+        }
         let grouped = entry.grouped(preferred);
         for (i, meaning) in grouped.meanings.iter().enumerate() {
             self.body
-                .append(&sense_row(i + 1, meaning.sense, &meaning.glosses));
+                .append(&sense_row(i + 1, meaning.sense, &meaning.glosses, &self.on_ref));
         }
         if !grouped.blocks.is_empty() {
             self.body.append(&label(
@@ -194,7 +191,7 @@ impl EntryView {
                 &["dim-label", "caption"],
             ));
             for block in &grouped.blocks {
-                self.body.append(&language_block(block));
+                self.body.append(&language_block(block, &self.on_ref));
             }
         }
         if !examples.is_empty() {
@@ -303,23 +300,77 @@ fn pitch_chip(pitch: u8) -> gtk::Label {
         .build()
 }
 
-fn language_block(block: &LanguageBlock) -> gtk::Box {
+/// What JMdict says about single forms: "猫脊: rarely used kanji form", "ねこぜ: with 猫背 only".
+fn form_notes(entry: &Entry) -> Vec<String> {
+    let mut notes = Vec::new();
+    for (i, k) in entry.kanji.iter().enumerate() {
+        if let Some(info) = entry.kanji_info.get(i).filter(|v| !v.is_empty()) {
+            notes.push(format!("{k}: {}", info.join(", ")));
+        }
+    }
+    for (i, r) in entry.readings.iter().enumerate() {
+        let mut parts: Vec<String> = entry.reading_info.get(i).cloned().unwrap_or_default();
+        if let Some(forms) = entry.reading_for.get(i).filter(|v| !v.is_empty()) {
+            parts.push(format!("with {} only", forms.join("、")));
+        }
+        if !parts.is_empty() {
+            notes.push(format!("{r}: {}", parts.join(", ")));
+        }
+    }
+    notes
+}
+
+fn language_block(block: &LanguageBlock, on_ref: &RefCallback) -> gtk::Box {
     let column = gtk::Box::new(gtk::Orientation::Vertical, 10);
     let title = gtk::Label::builder()
-        .label(lang_name(block.lang))
+        .label(language_name(block.lang))
         .xalign(0.0)
         .css_classes(["heading"])
         .build();
     column.append(&title);
     for (i, sense) in block.senses.iter().enumerate() {
         let glosses = [(block.lang, sense.gloss_text(block.lang))];
-        column.append(&sense_row(i + 1, sense, &glosses));
+        column.append(&sense_row(i + 1, sense, &glosses, on_ref));
     }
     column
 }
 
-/// One numbered meaning: its parts of speech and notes, then a line per language.
-fn sense_row(number: usize, sense: &Sense, glosses: &[(&str, String)]) -> gtk::Box {
+/// Small rounded tags in a wrapping row.
+fn chips(texts: &[&str]) -> gtk::FlowBox {
+    let flow = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .homogeneous(false)
+        .row_spacing(4)
+        .column_spacing(4)
+        .max_children_per_line(20)
+        .halign(gtk::Align::Start)
+        .build();
+    for text in texts {
+        let chip = gtk::Label::builder()
+            .label(*text)
+            .css_classes(["tango-chip", "dim-label"])
+            .build();
+        flow.insert(&chip, -1);
+    }
+    flow
+}
+
+/// "猫・ねこ・1" shown as "猫 (ねこ)": the sense number is dropped, a reading goes in brackets.
+fn ref_label(reference: &str) -> String {
+    let parts: Vec<&str> = reference
+        .split('・')
+        .filter(|p| !p.is_empty() && !p.chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    match parts.as_slice() {
+        [] => reference.to_string(),
+        [one] => (*one).to_string(),
+        [first, rest @ ..] => format!("{first} ({})", rest.join(", ")),
+    }
+}
+
+/// One numbered meaning: its parts of speech, tags, then a line per language, then the notes,
+/// where the word comes from, and what to see also.
+fn sense_row(number: usize, sense: &Sense, glosses: &[(&str, String)], on_ref: &RefCallback) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let num = gtk::Label::builder()
         .label(format!("{number}."))
@@ -333,21 +384,24 @@ fn sense_row(number: usize, sense: &Sense, glosses: &[(&str, String)]) -> gtk::B
         .spacing(4)
         .hexpand(true)
         .build();
-    let meta: Vec<&str> = sense
-        .pos
-        .iter()
-        .chain(&sense.fields)
-        .chain(&sense.misc)
-        .map(String::as_str)
-        .collect();
-    if !meta.is_empty() {
+    if !sense.pos.is_empty() {
         let meta_label = gtk::Label::builder()
-            .label(meta.join(", "))
+            .label(sense.pos.join(", "))
             .xalign(0.0)
             .wrap(true)
             .css_classes(["dim-label"])
             .build();
         body.append(&meta_label);
+    }
+    let tags: Vec<&str> = sense
+        .fields
+        .iter()
+        .chain(&sense.misc)
+        .chain(&sense.dialects)
+        .map(String::as_str)
+        .collect();
+    if !tags.is_empty() {
+        body.append(&chips(&tags));
     }
     for (lang, text) in glosses {
         if text.is_empty() {
@@ -365,6 +419,50 @@ fn sense_row(number: usize, sense: &Sense, glosses: &[(&str, String)]) -> gtk::B
         gloss.set_hexpand(true);
         line.append(&gloss);
         body.append(&line);
+    }
+    for note in &sense.info {
+        body.append(&label(note, &["dim-label", "tango-note"]));
+    }
+    if !sense.origins.is_empty() {
+        body.append(&label(&sense.origins.join("; "), &["dim-label", "caption"]));
+    }
+    if !sense.only_for.is_empty() {
+        body.append(&label(
+            &format!("Only for {}", sense.only_for.join("、")),
+            &["dim-label", "caption"],
+        ));
+    }
+    let refs: Vec<(&str, &str)> = sense
+        .see_also
+        .iter()
+        .map(|r| ("See also", r.as_str()))
+        .chain(sense.antonyms.iter().map(|r| ("Antonym", r.as_str())))
+        .collect();
+    if !refs.is_empty() {
+        let flow = gtk::FlowBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .homogeneous(false)
+            .row_spacing(2)
+            .column_spacing(6)
+            .max_children_per_line(20)
+            .halign(gtk::Align::Start)
+            .build();
+        for (kind, reference) in refs {
+            let button = gtk::Button::builder()
+                .label(format!("{kind}: {}", ref_label(reference)))
+                .tooltip_text("Open this entry")
+                .css_classes(["flat", "tango-ref"])
+                .build();
+            let on_ref = on_ref.clone();
+            let reference = reference.to_string();
+            button.connect_clicked(move |_| {
+                if let Some(f) = on_ref.borrow().as_ref() {
+                    f(&reference);
+                }
+            });
+            flow.insert(&button, -1);
+        }
+        body.append(&flow);
     }
     row.append(&body);
     row

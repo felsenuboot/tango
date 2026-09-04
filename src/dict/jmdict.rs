@@ -15,7 +15,7 @@ use quick_xml::escape::{resolve_predefined_entity, unescape_with};
 use quick_xml::events::Event;
 use quick_xml::{Reader, XmlVersion};
 
-use crate::model::{COMMON_PRIORITIES, Entry, Gloss, Sense};
+use crate::model::{COMMON_PRIORITIES, Entry, Gloss, Sense, language_name};
 
 /// Opens a JMdict file, transparently gunzipping if it starts with the gzip magic bytes.
 pub fn open(path: &Path) -> anyhow::Result<Box<dyn BufRead>> {
@@ -68,6 +68,8 @@ pub fn for_each_entry<R: BufRead>(
     let mut sense: Option<Sense> = None;
     let mut text = String::new();
     let mut lang = String::from("eng");
+    // `<lsource ls_wasei="y">`: a Japanese coinage from foreign parts (wasei eigo).
+    let mut wasei = false;
 
     loop {
         match reader.read_event_into(&mut buf)? {
@@ -78,15 +80,36 @@ pub fn for_each_entry<R: BufRead>(
                 match start.name().as_ref() {
                     "entry" => entry = Some(Entry::default()),
                     "sense" => sense = Some(Sense::default()),
-                    "gloss" => {
+                    "gloss" | "lsource" => {
                         lang = "eng".to_string();
+                        wasei = false;
                         for attr in start.attributes().flatten() {
-                            if attr.key.as_ref() == "xml:lang" {
-                                lang = attr.normalized_value(XmlVersion::Implicit1_0)?.into_owned();
+                            let value = attr.normalized_value(XmlVersion::Implicit1_0)?;
+                            match attr.key.as_ref() {
+                                "xml:lang" => lang = value.into_owned(),
+                                "ls_wasei" => wasei = value == "y",
+                                _ => {}
                             }
                         }
                     }
                     _ => {}
+                }
+            }
+            // `<lsource xml:lang="fre"/>` and `<re_nokanji/>`: an element without text.
+            Event::Empty(start) => {
+                let name = start.name().as_ref().to_string();
+                lang = "eng".to_string();
+                wasei = false;
+                for attr in start.attributes().flatten() {
+                    let value = attr.normalized_value(XmlVersion::Implicit1_0)?;
+                    match attr.key.as_ref() {
+                        "xml:lang" => lang = value.into_owned(),
+                        "ls_wasei" => wasei = value == "y",
+                        _ => {}
+                    }
+                }
+                if let Some(e) = entry.as_mut() {
+                    apply_text(e, sense.as_mut(), &name, &lang, wasei, String::new())?;
                 }
             }
             Event::Text(t) => {
@@ -122,7 +145,7 @@ pub fn for_each_entry<R: BufRead>(
                     }
                     name => {
                         if let Some(e) = entry.as_mut() {
-                            apply_text(e, sense.as_mut(), name, &lang, value)?;
+                            apply_text(e, sense.as_mut(), name, &lang, wasei, value)?;
                         }
                     }
                 }
@@ -145,21 +168,39 @@ fn resolve<'a>(entities: &'a HashMap<String, String>, name: &str) -> Option<&'a 
 fn apply_text(
     e: &mut Entry,
     sense: Option<&mut Sense>,
-    tag: &str,
+    name: &str,
     lang: &str,
+    wasei: bool,
     value: String,
 ) -> anyhow::Result<()> {
-    match tag {
-        "ent_seq" => e.id = value.parse().with_context(|| format!("ent_seq {value:?}"))?,
-        "keb" => e.kanji.push(value),
-        "reb" => e.readings.push(value),
+    match name {
+        "ent_seq" => e.id = value.parse().with_context(|| format!("bad ent_seq {value:?}"))?,
+        "keb" => {
+            e.kanji.push(value);
+            e.kanji_info.push(Vec::new());
+        }
+        "reb" => {
+            e.readings.push(value);
+            e.reading_info.push(Vec::new());
+            e.reading_for.push(Vec::new());
+        }
+        "ke_inf" => push_last(&mut e.kanji_info, value),
+        "re_inf" => push_last(&mut e.reading_info, value),
+        "re_restr" => push_last(&mut e.reading_for, value),
         "ke_pri" | "re_pri" => e.common |= COMMON_PRIORITIES.contains(&value.as_str()),
-        "pos" | "misc" | "field" | "gloss" => {
+        "pos" | "misc" | "field" | "gloss" | "s_inf" | "dial" | "lsource" | "xref" | "ant" | "stagk"
+        | "stagr" => {
             if let Some(s) = sense {
-                match tag {
+                match name {
                     "pos" => s.pos.push(value),
                     "misc" => s.misc.push(value),
                     "field" => s.fields.push(value),
+                    "s_inf" => s.info.push(value),
+                    "dial" => s.dialects.push(value),
+                    "lsource" => s.origins.push(origin(lang, wasei, &value)),
+                    "xref" => s.see_also.push(value),
+                    "ant" => s.antonyms.push(value),
+                    "stagk" | "stagr" => s.only_for.push(value),
                     _ => s.glosses.push(Gloss {
                         lang: lang.to_string(),
                         text: value,
@@ -170,6 +211,24 @@ fn apply_text(
         _ => {}
     }
     Ok(())
+}
+
+fn push_last(lists: &mut [Vec<String>], value: String) {
+    if let Some(last) = lists.last_mut() {
+        last.push(value);
+    }
+}
+
+/// "from English: cat", "wasei, from English: salaryman", or just "from French" when the
+/// source word is not given.
+fn origin(lang: &str, wasei: bool, word: &str) -> String {
+    let mut out = if wasei { "wasei, from " } else { "from " }.to_string();
+    out.push_str(&language_name(lang));
+    if !word.is_empty() {
+        out.push_str(": ");
+        out.push_str(word);
+    }
+    out
 }
 
 /// Collects `<!ENTITY name "value">` declarations from the DOCTYPE internal subset.
@@ -229,6 +288,32 @@ mod tests {
         assert_eq!(cat.senses[0].gloss_text("ger"), "Katze; Hauskatze");
         assert_eq!(cat.senses[1].misc, ["word usually written using kana alone"]);
         assert_eq!(cat.languages(), ["eng", "ger"]);
+    }
+
+    #[test]
+    fn entry_details_are_read() {
+        let entries = parse_sample();
+        let stoop = entries.iter().find(|e| e.id == 2000002).unwrap();
+        assert_eq!(stoop.kanji, ["猫背", "猫脊"]);
+        assert_eq!(
+            stoop.kanji_info,
+            [vec![], vec!["rarely used kanji form".to_string()]]
+        );
+        assert_eq!(
+            stoop.reading_info,
+            [vec![
+                "gikun (meaning as reading) or jukujikun (special kanji reading)".to_string()
+            ]]
+        );
+        assert_eq!(stoop.reading_for, [vec!["猫背".to_string()]]);
+        let s = &stoop.senses[0];
+        assert_eq!(s.only_for, ["猫背"]);
+        assert_eq!(s.info, ["often of a person"]);
+        assert_eq!(s.dialects, ["Kansai-ben"]);
+        assert_eq!(s.origins, ["wasei, from English: stoop", "from French"]);
+        assert_eq!(s.see_also, ["猫・ねこ・1"]);
+        assert_eq!(s.antonyms, ["背筋・せすじ"]);
+        assert_eq!(s.gloss_text("eng"), "bent back; hunchback; stoop");
     }
 
     #[test]

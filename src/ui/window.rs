@@ -354,6 +354,11 @@ impl Window {
             this,
             move |c| this.show_kanji(c)
         ));
+        this.entry_view.connect_ref(clone!(
+            #[weak]
+            this,
+            move |reference| this.open_reference(reference)
+        ));
         this.kanji_view.connect_word(clone!(
             #[weak]
             this,
@@ -1182,6 +1187,31 @@ impl Window {
         self.stack.set_visible_child_name("entry");
         self.back.set_visible(false);
         self.refresh_star();
+    }
+
+    /// A "See also" / "Antonym" reference, "猫・ねこ・1": the entry for the form, with that
+    /// reading when one is given; a search for the form when it is not installed.
+    fn open_reference(&self, reference: &str) {
+        let parts: Vec<&str> = reference
+            .split('・')
+            .filter(|p| !p.is_empty() && !p.chars().all(|c| c.is_ascii_digit()))
+            .collect();
+        let Some(&form) = parts.first() else { return };
+        let reading = parts.get(1).copied();
+        let enabled = self.config.borrow().enabled_sources();
+        let found = self
+            .db
+            .lookup(&[form.to_string()], &enabled, 10)
+            .unwrap_or_default();
+        let entry = found
+            .iter()
+            .find(|e| reading.is_none_or(|r| e.readings.iter().any(|x| x == r)))
+            .or(found.first())
+            .cloned();
+        match entry {
+            Some(entry) => self.show_entry(entry),
+            None => self.search.set_text(form),
+        }
     }
 
     /// Fills the entry view: the entry, and its example sentences when Tatoeba is enabled.

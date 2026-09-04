@@ -20,6 +20,18 @@ pub struct Sense {
     pub fields: Vec<String>,
     /// In document order, so the languages come out in the order the source lists them.
     pub glosses: Vec<Gloss>,
+    /// `<s_inf>`: notes on the sense ("often of a person").
+    pub info: Vec<String>,
+    /// `<dial>`: "Kansai-ben", ...
+    pub dialects: Vec<String>,
+    /// `<lsource>`, readable: "from English: cat", "wasei, from English".
+    pub origins: Vec<String>,
+    /// `<xref>`: "猫・ねこ・1", kanji, reading and sense number, any of them.
+    pub see_also: Vec<String>,
+    /// `<ant>`, same shape as `see_also`.
+    pub antonyms: Vec<String>,
+    /// `<stagk>` / `<stagr>`: the sense applies to these forms only.
+    pub only_for: Vec<String>,
 }
 
 impl Sense {
@@ -41,6 +53,13 @@ pub struct Entry {
     pub id: i64,
     pub kanji: Vec<String>,
     pub readings: Vec<String>,
+    /// `<ke_inf>` per kanji form ("ateji (phonetic) reading", "rarely used kanji form");
+    /// parallel to `kanji`, but read it with `get`: other sources leave it short.
+    pub kanji_info: Vec<Vec<String>>,
+    /// `<re_inf>` per reading, parallel to `readings`.
+    pub reading_info: Vec<Vec<String>>,
+    /// `<re_restr>` per reading: the kanji forms it goes with, empty for all of them.
+    pub reading_for: Vec<Vec<String>>,
     /// Pitch accent of the first reading: the mora after which the pitch drops, 0 for a flat
     /// (heiban) word; several when the sources give alternatives. Empty when unknown.
     pub pitch: Vec<u8>,
@@ -332,6 +351,79 @@ pub struct Radical {
     pub radical: String,
     pub strokes: u8,
     pub kanji: Vec<char>,
+}
+
+/// The name of a language JMdict uses a code for (ISO 639-2/B); the code itself when unknown.
+pub fn language_name(code: &str) -> String {
+    match code {
+        "eng" => "English",
+        "ger" | "deu" => "German",
+        "dut" | "nld" => "Dutch",
+        "fre" | "fra" => "French",
+        "rus" => "Russian",
+        "spa" => "Spanish",
+        "hun" => "Hungarian",
+        "slv" => "Slovenian",
+        "swe" => "Swedish",
+        "por" => "Portuguese",
+        "ita" => "Italian",
+        "lat" => "Latin",
+        "chi" | "zho" => "Chinese",
+        "kor" => "Korean",
+        "grc" => "Ancient Greek",
+        "gre" | "ell" => "Greek",
+        "ain" => "Ainu",
+        "san" => "Sanskrit",
+        "ara" => "Arabic",
+        "heb" => "Hebrew",
+        "pol" => "Polish",
+        "tur" => "Turkish",
+        "vie" => "Vietnamese",
+        "tha" => "Thai",
+        "ind" => "Indonesian",
+        "may" | "msa" => "Malay",
+        "fil" | "tgl" => "Tagalog",
+        "hin" => "Hindi",
+        "per" | "fas" => "Persian",
+        "nor" => "Norwegian",
+        "dan" => "Danish",
+        "fin" => "Finnish",
+        "afr" => "Afrikaans",
+        "epo" => "Esperanto",
+        "haw" => "Hawaiian",
+        "mon" => "Mongolian",
+        "tib" | "bod" => "Tibetan",
+        "bur" | "mya" => "Burmese",
+        "khm" => "Khmer",
+        "ukr" => "Ukrainian",
+        "cze" | "ces" => "Czech",
+        "bul" => "Bulgarian",
+        "rum" | "ron" => "Romanian",
+        "scr" | "hrv" => "Croatian",
+        "srp" => "Serbian",
+        "est" => "Estonian",
+        "lit" => "Lithuanian",
+        "glg" => "Galician",
+        "bre" => "Breton",
+        "ice" | "isl" => "Icelandic",
+        "yid" => "Yiddish",
+        "urd" => "Urdu",
+        "ben" => "Bengali",
+        "tam" => "Tamil",
+        "geo" | "kat" => "Georgian",
+        "arn" => "Mapudungun",
+        "kur" => "Kurdish",
+        "mnc" => "Manchu",
+        "mol" => "Moldavian",
+        "sla" => "Slavic",
+        "alg" => "Algonquian",
+        "amh" => "Amharic",
+        "swa" => "Swahili",
+        "som" => "Somali",
+        "tah" => "Tahitian",
+        other => return other.to_string(),
+    }
+    .to_string()
 }
 
 /// A Tatoeba example sentence in Japanese with its translations.
