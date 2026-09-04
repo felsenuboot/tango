@@ -22,6 +22,7 @@ const RESULT_LIMIT: usize = 100;
 pub struct Window {
     pub win: adw::ApplicationWindow,
     pub search: gtk::SearchEntry,
+    pub menu_button: gtk::MenuButton,
     config: Rc<RefCell<Config>>,
     db: Rc<Database>,
     db_path: PathBuf,
@@ -154,6 +155,7 @@ impl Window {
         let this = Rc::new(Self {
             win,
             search,
+            menu_button,
             config,
             db,
             db_path,

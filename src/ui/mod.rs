@@ -7,6 +7,7 @@
 pub mod entry_view;
 pub mod import_dialog;
 pub mod preferences;
+pub mod theme;
 pub mod window;
 
 use std::cell::RefCell;
@@ -68,6 +69,7 @@ pub fn activate(app: &adw::Application) {
         return;
     }
     let config = Rc::new(RefCell::new(Config::load()));
+    theme::apply(theme::Scheme::from_name(&config.borrow().color_scheme));
     let db_path = database_path();
     let db = match Database::open(&db_path) {
         Ok(db) => Rc::new(db),

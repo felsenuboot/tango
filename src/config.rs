@@ -15,6 +15,8 @@ const APP_DIR_NAME: &str = "tango";
 pub struct Config {
     /// Order of the gloss blocks in an entry, ISO 639-2 codes as JMdict uses them.
     pub gloss_languages: Vec<String>,
+    /// "system" | "light" | "dark", see `ui::theme::Scheme`.
+    pub color_scheme: String,
     pub window: WindowState,
     #[serde(skip)]
     path: PathBuf,
@@ -42,6 +44,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             gloss_languages: vec!["eng".into(), "ger".into()],
+            color_scheme: "system".into(),
             window: WindowState::default(),
             path: config_dir().join("config.json"),
         }
@@ -133,10 +136,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("tango-config-old-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
-        // 0.1.0 wrote a per-app colour scheme; it is gone since issue #1.
-        std::fs::write(&path, r#"{"color_scheme": "dark", "gloss_languages": ["ger"]}"#).unwrap();
+        std::fs::write(&path, r#"{"from_the_future": true, "gloss_languages": ["ger"]}"#).unwrap();
         let cfg = Config::load_from(path);
         assert_eq!(cfg.gloss_languages, ["ger"]);
+        assert_eq!(cfg.color_scheme, "system");
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -20,7 +20,7 @@ Offline, with English and German glosses side by side.
   or German word for a gloss lookup. Exact matches and common words come first.
 - **Entries.** Headword, readings, alternative spellings, every sense with its
   parts of speech and the glosses per language, in the order you prefer.
-- Adaptive layout (sidebar collapses on narrow windows), follows the system colour scheme,
+- Adaptive layout (sidebar collapses on narrow windows), light and dark theme (follow the system or force one),
   keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+I` import, `Ctrl+,` preferences).
 
 ## Roadmap

@@ -22,6 +22,7 @@ cargo run                                    # dev build against the real config
 | `src/ui/entry_view.rs` | renders one entry |
 | `src/ui/import_dialog.rs` | progress dialog + worker thread + channel |
 | `src/ui/preferences.rs` | preferences dialog |
+| `src/ui/theme.rs` | colour scheme: follow the system, or force light / dark above the user's GTK CSS |
 | `src/config.rs` | JSON config in `~/.config/tango`, XDG paths |
 | `src/autopilot.rs` | scripted UI driving (below) |
 | `tests/fixtures/` | a six-entry JMdict sample the unit tests use |
@@ -52,11 +53,10 @@ WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
 
 `XDG_CONFIG_HOME` is redirected on purpose: GTK loads `~/.config/gtk-4.0/gtk.css`
 above every application style provider, and on a desktop that generates that file
-(Hyprland with Matugen, say) it would repaint the screenshots in the desktop's
-palette. That is also why the app has no colour-scheme setting of its own: it
-follows the system, which on such a desktop means portal for light/dark plus the
-user CSS for the palette. The `theme light|dark` autopilot step forces a scheme
-just for a screenshot run.
+(Hyprland with Matugen, say) "Follow system" repaints the screenshots in the
+desktop's palette. The Light and Dark settings beat that file by re-declaring
+libadwaita's named colours one priority above it, see `src/ui/theme.rs`. The
+`theme light|dark|system` autopilot step switches for one run without saving.
 
 ## Reading the code as a Rust newcomer
 
