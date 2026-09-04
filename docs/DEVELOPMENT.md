@@ -220,6 +220,17 @@ desktop's palette. The Light and Dark settings beat that file by re-declaring
 libadwaita's named colours one priority above it, see `src/ui/theme.rs`. The
 `theme light|dark|system` autopilot step switches for one run without saving.
 
+The README slideshow and `docs/TOUR.md` are captured the same way, with all
+five dictionaries imported, a throwaway user database holding a few
+favourites, and `XDG_CONFIG_HOME` pointing at a config with
+`{"gloss_languages": ["ger", "eng"]}`. One 1280×720 capture per screen goes
+into `data/screenshots/`; the GIF is built from the same files:
+
+```
+magick -delay 280 -loop 0 entry.png deinflect.png sentence.png wadoku.png kanji.png \
+  radicals.png lists.png dictionaries.png light.png -resize 960x540 -layers Optimize tour.gif
+```
+
 ## Hyprland and popups
 
 Hyprland (0.56, and master as of 2026-09) keeps a window's popups out of the
