@@ -58,7 +58,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/store/db.rs` | SQLite schema (v3: `sources`, entries per source, FTS5 over glosses), insert, load, lookup, search |
 | `src/store/user.rs` | the user database: word lists, migrated forward, JSON backup |
 | `src/store/csv.rs` | just enough CSV for list import and export |
-| `src/store/export.rs` | list files in other tools' layouts (plain CSV, Takoboto) and reading Takoboto exports |
+| `src/store/export.rs` | list files in other tools' layouts (CSV, Anki, Kitsun, Takoboto) and reading Takoboto exports |
 | `src/store/import.rs` | the import, download and remove jobs the UI runs on a worker thread |
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
@@ -124,7 +124,13 @@ The index is rebuilt after each import and removal (11 s for the full JMdict,
 ## Word list files
 
 `store::export` writes a list in a chosen layout and `store::csv` does the
-quoting. Plain CSV has a header (headword, reading, meaning, note, added).
+quoting. Plain CSV has a header (headword, reading, meaning, note, added). The
+Anki file is a TSV with the `#separator`, `#html` and `#columns` directives
+Anki's text importer reads (word, reading, meaning, note, tags). The Kitsun
+file is a CSV with named columns (word, reading, meaning_en, meaning_de, note,
+tags) for Kitsun's importer, which maps columns to card fields itself; there is
+no Kitsun API yet, so sync waits. Meanings come from the dictionary entry (first
+sense per language) and fall back to the gloss the list kept.
 Takoboto's layout is what its Android app writes: comma-separated, UTF-8 with a
 byte-order mark, no header, list name in column 1, `word, , reading` in column
 4, meanings joined with `, , ` in column 5; columns 2 and 3 are undocumented

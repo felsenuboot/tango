@@ -91,8 +91,14 @@ impl ListsPage {
         menu.append(Some("Rename…"), Some("lists.rename"));
         menu.append(Some("Move up"), Some("lists.move-up"));
         let export = gio::Menu::new();
-        export.append(Some(Layout::Csv.label()), Some("lists.export::csv"));
-        export.append(Some(Layout::Takoboto.label()), Some("lists.export::takoboto"));
+        for (layout, target) in [
+            (Layout::Csv, "csv"),
+            (Layout::Anki, "anki"),
+            (Layout::Kitsun, "kitsun"),
+            (Layout::Takoboto, "takoboto"),
+        ] {
+            export.append(Some(layout.label()), Some(&format!("lists.export::{target}")));
+        }
         menu.append_submenu(Some("Export as…"), &export);
         menu.append(Some("Import CSV into this list…"), Some("lists.import-csv"));
         menu.append(Some("Delete list"), Some("lists.delete"));
@@ -294,6 +300,8 @@ impl ListsPage {
         let weak = Rc::downgrade(self);
         export.connect_activate(move |_, target| {
             let layout = match target.and_then(|t| t.get::<String>()).as_deref() {
+                Some("anki") => Layout::Anki,
+                Some("kitsun") => Layout::Kitsun,
                 Some("takoboto") => Layout::Takoboto,
                 _ => Layout::Csv,
             };

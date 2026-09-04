@@ -1,5 +1,6 @@
-//! Word list files in the layouts other tools read: plain CSV for spreadsheets, and Takoboto's
-//! own export layout, which can also be read back in.
+//! Word list files in the layouts other tools read: plain CSV for spreadsheets, a TSV Anki
+//! imports as is, a CSV with named columns for Kitsun's importer (which maps columns to card
+//! fields itself), and Takoboto's own export layout, which can also be read back in.
 //!
 //! Takoboto (Android) writes `Download/Takoboto/Takoboto.<date>.csv`: comma-separated, UTF-8
 //! with a byte-order mark, no header. Column 1 is the list name, column 4 the word and reading
@@ -13,6 +14,8 @@ use crate::store::user::ListEntry;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layout {
     Csv,
+    Anki,
+    Kitsun,
     Takoboto,
 }
 
@@ -20,6 +23,8 @@ impl Layout {
     pub fn label(self) -> &'static str {
         match self {
             Layout::Csv => "CSV for spreadsheets",
+            Layout::Anki => "Anki TSV",
+            Layout::Kitsun => "Kitsun CSV",
             Layout::Takoboto => "Takoboto CSV",
         }
     }
@@ -27,6 +32,8 @@ impl Layout {
     pub fn file_name(self, list: &str) -> String {
         match self {
             Layout::Csv => format!("{list}.csv"),
+            Layout::Anki => format!("{list}.anki.txt"),
+            Layout::Kitsun => format!("{list}.kitsun.csv"),
             Layout::Takoboto => format!("Takoboto.{list}.csv"),
         }
     }
@@ -41,6 +48,19 @@ pub struct Row<'a> {
 }
 
 pub const CSV_HEADER: [&str; 5] = ["headword", "reading", "meaning", "note", "added"];
+pub const KITSUN_HEADER: [&str; 6] = ["word", "reading", "meaning_en", "meaning_de", "note", "tags"];
+
+/// The glosses of the first sense in `lang`, or the gloss the list kept when the entry is gone.
+fn meaning(row: &Row, lang: &str) -> String {
+    row.entry
+        .and_then(|e| {
+            e.senses
+                .iter()
+                .map(|s| s.gloss_text(lang))
+                .find(|t| !t.is_empty())
+        })
+        .unwrap_or_else(|| row.item.gloss.clone())
+}
 
 /// Takoboto joins the pieces of a field with this.
 const TAKOBOTO_SEP: &str = ", , ";
@@ -54,6 +74,34 @@ pub fn render(layout: Layout, rows: &[Row]) -> String {
                 let i = r.item;
                 out.push_str(&csv::row(
                     &[&i.headword, &i.reading, &i.gloss, &i.note, &i.added],
+                    ',',
+                ));
+            }
+        }
+        // Anki reads the directives at the top and maps the columns to a note type on import.
+        Layout::Anki => {
+            out.push_str("#separator:tab\n#html:false\n#columns:word\treading\tmeaning\tnote\ttags\n");
+            for r in rows {
+                let i = r.item;
+                out.push_str(&csv::row(
+                    &[&i.headword, &i.reading, &meaning(r, "eng"), &i.note, r.list],
+                    '\t',
+                ));
+            }
+        }
+        Layout::Kitsun => {
+            out.push_str(&csv::row(&KITSUN_HEADER, ','));
+            for r in rows {
+                let i = r.item;
+                out.push_str(&csv::row(
+                    &[
+                        &i.headword,
+                        &i.reading,
+                        &meaning(r, "eng"),
+                        &meaning(r, "ger"),
+                        &i.note,
+                        r.list,
+                    ],
                     ',',
                 ));
             }
@@ -156,6 +204,37 @@ mod tests {
             text,
             "headword,reading,meaning,note,added\n猫,ねこ,Katze,has a tail,2026-09-04T20:00:00Z\n"
         );
+    }
+
+    #[test]
+    fn anki_and_kitsun_layouts() {
+        let i = item();
+        let mut e = cat();
+        e.senses[0].glosses.push(crate::model::Gloss {
+            lang: "ger".into(),
+            text: "Katze".into(),
+        });
+        let rows = [Row {
+            list: "Favourites",
+            item: &i,
+            entry: Some(&e),
+        }];
+        assert_eq!(
+            render(Layout::Anki, &rows),
+            "#separator:tab\n#html:false\n#columns:word\treading\tmeaning\tnote\ttags\n\
+             猫\tねこ\tcat\thas a tail\tFavourites\n"
+        );
+        assert_eq!(
+            render(Layout::Kitsun, &rows),
+            "word,reading,meaning_en,meaning_de,note,tags\n猫,ねこ,cat,Katze,has a tail,Favourites\n"
+        );
+        // Without the dictionary entry the kept gloss stands in for both languages.
+        let rows = [Row {
+            list: "L",
+            item: &i,
+            entry: None,
+        }];
+        assert!(render(Layout::Kitsun, &rows).ends_with("猫,ねこ,Katze,Katze,has a tail,L\n"));
     }
 
     #[test]
