@@ -108,17 +108,17 @@ mod tests {
         let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jmdict-sample.xml");
         let mut messages = Vec::new();
         let n = import_file(&db, &sources::JMDICT, &sample, &mut |m, f| messages.push((m, f))).unwrap();
-        assert_eq!(n, 6);
-        assert_eq!(db.entry_count().unwrap(), 6);
+        assert_eq!(n, 7);
+        assert_eq!(db.entry_count().unwrap(), 7);
         let status = db.sources().unwrap();
         assert_eq!(status.len(), 1);
         assert_eq!(status[0].id, "jmdict");
         assert_eq!(status[0].version.as_deref(), Some("2024-01-01"));
-        assert_eq!(status[0].entries, 6);
+        assert_eq!(status[0].entries, 7);
         assert!(!status[0].imported.is_empty());
         assert_eq!(
             messages.last().unwrap(),
-            &("Imported 6 entries.".to_string(), Some(1.0))
+            &("Imported 7 entries.".to_string(), Some(1.0))
         );
     }
 

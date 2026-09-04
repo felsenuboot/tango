@@ -16,8 +16,11 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
 - **No Flatpak for Felix, no Flathub ever.** Felix runs Arch and wants a PKGBUILD;
   Flathub is against its terms for this project. A Flatpak manifest is at most
   a low-priority option for other distros.
-- **JMdict ships German/Dutch/French glosses as separate senses.** Merging
-  them per meaning is the first roadmap item.
+- **JMdict ships German/Dutch/French glosses as separate senses** with no
+  alignment to the English ones. `Entry::grouped` pairs a language by position
+  when its sense count equals the English count, else shows it as a block
+  (issue #3, numbers in `docs/DEVELOPMENT.md`). Do not "fix" that by attaching
+  a lone German sense to meaning 1; the samples say it is often not meaning 1.
 - **Colour scheme is a three-way toggle: Follow system / Light / Dark (issue #1).**
   Felix wants all three and said so twice; never reduce it to "follow the
   system". His desktop (Hyprland, Matugen) writes `~/.config/gtk-4.0/colors.css`,

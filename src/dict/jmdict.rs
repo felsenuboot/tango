@@ -213,7 +213,10 @@ mod tests {
     fn parses_sample_entries() {
         let entries = parse_sample();
         let ids: Vec<i64> = entries.iter().map(|e| e.id).collect();
-        assert_eq!(ids, [1467640, 1000225, 1236120, 2000001, 2000002, 2000003]);
+        assert_eq!(
+            ids,
+            [1467640, 1000225, 1236120, 2000001, 2000002, 2000003, 2000004]
+        );
         let cat = &entries[0];
         assert_eq!(cat.kanji, ["猫"]);
         assert_eq!(cat.readings, ["ねこ", "ネコ"]);
@@ -274,7 +277,7 @@ mod tests {
         enc.write_all(SAMPLE.as_bytes()).unwrap();
         enc.finish().unwrap();
         let n = for_each_entry(open(&gz).unwrap(), |_| Ok(())).unwrap();
-        assert_eq!(n, 6);
+        assert_eq!(n, 7);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

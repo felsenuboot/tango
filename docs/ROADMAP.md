@@ -45,10 +45,10 @@ ranking. #7, #16 and #8 are three steps of one piece of work.
   with an Accounts page and secret storage
 - Kitsun sync (#15) when its API exists
 
-## Open decisions
+## Decisions taken
 - #3: JMdict lists Dutch, French and German glosses as separate senses after
-  the English ones (猫 has them as senses 7 to 11). Merging pairs senses across
-  the language blocks by position and falls back to separate blocks when the
-  counts differ. Agree on that heuristic before building it.
+  the English ones and aligns nothing. Tango pairs a language with the English
+  meanings by position when the sense counts are equal and lists it as its own
+  block otherwise (details and numbers in `docs/DEVELOPMENT.md`).
 - #19: the JLPT lists are downloaded only when the user asks, never by
   default.

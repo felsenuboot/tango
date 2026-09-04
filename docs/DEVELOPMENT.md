@@ -44,6 +44,23 @@ source's own number (JMdict `ent_seq`). Search takes the enabled sources in the
 order from the config file and ranks exact matches, then common words, then
 source order, then length.
 
+## JMdict and its languages
+
+JMdict keeps every language in senses of its own: all the English senses
+first, then a block per language (German, Russian, Hungarian, Dutch, Spanish,
+French, Swedish, Slovenian), and the project makes "no attempt to align senses
+between the languages". Measured on the 2026-09-04 file: no sense mixes
+languages, the non-English senses always follow the English ones and never
+carry a part of speech, and for German the sense count equals the English
+count in 82% of the entries, is one in 6% and larger in 11%.
+
+`Entry::grouped` in `src/model.rs` therefore lines a language up with the
+English senses by position when the counts are equal (right in nearly every
+sampled case, wrong now and then, e.g. マス目) and otherwise lists it as its
+own block after the numbered meanings. A lone German sense is *not* attached
+to meaning 1: in the samples it is sometimes meaning 1, sometimes meaning 2,
+sometimes two meanings joined.
+
 ## Environment variables
 
 | Variable | Purpose |

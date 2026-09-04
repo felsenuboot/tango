@@ -48,4 +48,18 @@
 <r_ele><reb>ねこま</reb></r_ele>
 <sense><pos>&n;</pos><field>&comp;</field><gloss>cat (archaic reading, for the test) &amp; more</gloss></sense>
 </entry>
+<entry>
+<ent_seq>2000004</ent_seq>
+<k_ele><keb>手</keb><ke_pri>ichi1</ke_pri></k_ele>
+<r_ele><reb>て</reb><re_pri>ichi1</re_pri></r_ele>
+<sense><pos>&n;</pos><gloss>hand</gloss><gloss>arm</gloss></sense>
+<sense><pos>&n;</pos><gloss>handle</gloss></sense>
+<sense><pos>&n;</pos><gloss>means</gloss><gloss>way</gloss></sense>
+<sense><gloss xml:lang="ger">Hand</gloss><gloss xml:lang="ger">Arm</gloss></sense>
+<sense><gloss xml:lang="ger">Griff</gloss></sense>
+<sense><gloss xml:lang="ger">Mittel</gloss><gloss xml:lang="ger">Weg</gloss></sense>
+<sense><gloss xml:lang="dut">hand</gloss></sense>
+<sense><gloss xml:lang="fre">main</gloss></sense>
+<sense><gloss xml:lang="fre">poignée</gloss></sense>
+</entry>
 </JMdict>

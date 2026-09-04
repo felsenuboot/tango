@@ -2,7 +2,23 @@
 
 use adw::prelude::*;
 
-use crate::model::{Entry, Sense};
+use crate::model::{Entry, LanguageBlock, Sense};
+
+fn lang_name(lang: &str) -> String {
+    match lang {
+        "eng" => "English",
+        "ger" => "German",
+        "dut" => "Dutch",
+        "fre" => "French",
+        "rus" => "Russian",
+        "spa" => "Spanish",
+        "hun" => "Hungarian",
+        "slv" => "Slovenian",
+        "swe" => "Swedish",
+        other => return other.to_uppercase(),
+    }
+    .to_string()
+}
 
 fn lang_label(lang: &str) -> String {
     match lang {
@@ -63,15 +79,6 @@ impl EntryView {
         while let Some(child) = self.body.first_child() {
             self.body.remove(&child);
         }
-        let available = entry.languages();
-        let mut langs: Vec<&str> = preferred
-            .iter()
-            .map(String::as_str)
-            .filter(|l| available.contains(l))
-            .collect();
-        let extra: Vec<&str> = available.iter().copied().filter(|l| !langs.contains(l)).collect();
-        langs.extend(extra);
-
         let head = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         head.append(&label(entry.headword(), &["tango-headword"]));
         if entry.common {
@@ -96,14 +103,42 @@ impl EntryView {
             let also = format!("Also written {}", entry.kanji[1..].join("、"));
             self.body.append(&label(&also, &["dim-label"]));
         }
-        for (i, sense) in entry.senses.iter().enumerate() {
-            self.body.append(&sense_row(i + 1, sense, &langs));
+        let grouped = entry.grouped(preferred);
+        for (i, meaning) in grouped.meanings.iter().enumerate() {
+            self.body
+                .append(&sense_row(i + 1, meaning.sense, &meaning.glosses));
+        }
+        if !grouped.blocks.is_empty() {
+            self.body.append(&label(
+                "JMdict splits the following languages into senses of their own, so they are listed \
+                 separately from the meanings above.",
+                &["dim-label", "caption"],
+            ));
+            for block in &grouped.blocks {
+                self.body.append(&language_block(block));
+            }
         }
         self.root.vadjustment().set_value(0.0);
     }
 }
 
-fn sense_row(number: usize, sense: &Sense, langs: &[&str]) -> gtk::Box {
+fn language_block(block: &LanguageBlock) -> gtk::Box {
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    let title = gtk::Label::builder()
+        .label(lang_name(block.lang))
+        .xalign(0.0)
+        .css_classes(["heading"])
+        .build();
+    column.append(&title);
+    for (i, sense) in block.senses.iter().enumerate() {
+        let glosses = [(block.lang, sense.gloss_text(block.lang))];
+        column.append(&sense_row(i + 1, sense, &glosses));
+    }
+    column
+}
+
+/// One numbered meaning: its parts of speech and notes, then a line per language.
+fn sense_row(number: usize, sense: &Sense, glosses: &[(&str, String)]) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let num = gtk::Label::builder()
         .label(format!("{number}."))
@@ -133,8 +168,7 @@ fn sense_row(number: usize, sense: &Sense, langs: &[&str]) -> gtk::Box {
             .build();
         body.append(&meta_label);
     }
-    for lang in langs {
-        let text = sense.gloss_text(lang);
+    for (lang, text) in glosses {
         if text.is_empty() {
             continue;
         }
@@ -146,7 +180,7 @@ fn sense_row(number: usize, sense: &Sense, langs: &[&str]) -> gtk::Box {
             .css_classes(["tango-lang"])
             .build();
         line.append(&tag);
-        let gloss = label(&text, &[]);
+        let gloss = label(text, &[]);
         gloss.set_hexpand(true);
         line.append(&gloss);
         body.append(&line);

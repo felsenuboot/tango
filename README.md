@@ -18,8 +18,11 @@ Offline, with English and German glosses side by side.
   import a local copy. ~220k entries land in a local SQLite file in seconds.
 - **Search.** Type kana or kanji for a headword/reading lookup, or an English
   or German word for a gloss lookup. Exact matches and common words come first.
-- **Entries.** Headword, readings, alternative spellings, every sense with its
-  parts of speech and the glosses per language, in the order you prefer.
+- **Entries.** Headword, readings, alternative spellings, every meaning with
+  its parts of speech and the translations per language in the order you
+  prefer. JMdict ships the German, Dutch and French glosses as separate
+  senses; Tango lines them up with the English meanings where the sense
+  counts match and lists the rest per language.
 - **Dictionaries page.** Preferences lists every source with its version,
   import date and entry count, with update, remove and a search toggle per
   dictionary. Today that is JMdict; the roadmap adds the others.
@@ -28,8 +31,6 @@ Offline, with English and German glosses side by side.
 
 ## Roadmap
 
-- Merge the per-language senses JMdict ships (the German, Dutch and French
-  glosses come as separate senses) so each meaning shows its translations together
 - Wadoku (German, with pitch accent) next to JMdict
 - Kanji view: KANJIDIC details, KanjiVG stroke order, radicals
 - Example sentences from Tatoeba

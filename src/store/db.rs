@@ -482,7 +482,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap();
-        db.finish_source("jmdict", Some("2024-01-01"), WHEN, 6).unwrap();
+        db.finish_source("jmdict", Some("2024-01-01"), WHEN, 7).unwrap();
         db
     }
 
@@ -568,7 +568,7 @@ mod tests {
                 id: "jmdict".into(),
                 version: Some("2024-01-01".into()),
                 imported: WHEN.into(),
-                entries: 6,
+                entries: 7,
             }]
         );
     }
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn remove_source_drops_dependent_rows() {
         let db = sample_db();
-        assert_eq!(db.entry_count().unwrap(), 6);
+        assert_eq!(db.entry_count().unwrap(), 7);
         db.remove_source("jmdict").unwrap();
         assert_eq!(db.entry_count().unwrap(), 0);
         assert!(db.sources().unwrap().is_empty());
@@ -609,7 +609,7 @@ mod tests {
         assert!(db.sources().unwrap().is_empty());
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
-        assert_eq!(db.entry_count().unwrap(), 6);
+        assert_eq!(db.entry_count().unwrap(), 7);
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

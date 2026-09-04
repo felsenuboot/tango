@@ -80,3 +80,187 @@ impl Entry {
         ""
     }
 }
+
+/// A sense's language. JMdict never mixes languages within one sense, so the first gloss decides;
+/// a sense without glosses (cross-reference only) counts as English.
+fn sense_lang(sense: &Sense) -> &str {
+    sense.glosses.first().map_or("eng", |g| g.lang.as_str())
+}
+
+/// One meaning as the entry view shows it: a backbone sense and the translations lined up with it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Meaning<'a> {
+    pub sense: &'a Sense,
+    /// `(language, glosses joined with "; ")`, in display order.
+    pub glosses: Vec<(&'a str, String)>,
+}
+
+/// The senses of one language that could not be lined up with the numbered meanings.
+#[derive(Debug, PartialEq, Eq)]
+pub struct LanguageBlock<'a> {
+    pub lang: &'a str,
+    pub senses: Vec<&'a Sense>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Grouped<'a> {
+    pub meanings: Vec<Meaning<'a>>,
+    pub blocks: Vec<LanguageBlock<'a>>,
+}
+
+impl Entry {
+    /// Groups the senses for display. JMdict keeps every language in its own senses, all the
+    /// English ones first and then a block per language, and records no correspondence between
+    /// them ("no attempt to align senses between the languages", says the project). In practice a
+    /// language with as many senses as English lines up with them by position, so those become
+    /// translations of the same meaning; a language with a different count keeps its own block.
+    /// `preferred` orders the languages; the rest follow as the entry lists them.
+    pub fn grouped(&self, preferred: &[String]) -> Grouped<'_> {
+        let available = self.languages();
+        let mut order: Vec<&str> = preferred
+            .iter()
+            .filter_map(|p| available.iter().find(|l| **l == p.as_str()).copied())
+            .collect();
+        let rest: Vec<&str> = available.iter().copied().filter(|l| !order.contains(l)).collect();
+        order.extend(rest);
+        let backbone = if available.contains(&"eng") {
+            "eng"
+        } else {
+            order.first().copied().unwrap_or("eng")
+        };
+        let of =
+            |lang: &str| -> Vec<&Sense> { self.senses.iter().filter(|s| sense_lang(s) == lang).collect() };
+
+        let spine = of(backbone);
+        let mut meanings: Vec<Meaning> = spine
+            .iter()
+            .map(|s| Meaning {
+                sense: s,
+                glosses: Vec::new(),
+            })
+            .collect();
+        let mut blocks = Vec::new();
+        for lang in order.iter().copied().filter(|l| *l != backbone) {
+            let senses = of(lang);
+            if senses.is_empty() {
+                continue; // its glosses sit inside the backbone senses (older files)
+            }
+            if senses.len() == spine.len() {
+                for (m, s) in meanings.iter_mut().zip(&senses) {
+                    m.glosses.push((lang, s.gloss_text(lang)));
+                }
+            } else {
+                blocks.push(LanguageBlock { lang, senses });
+            }
+        }
+        // Each meaning's own glosses come first (older files put several languages into one
+        // sense), then the aligned ones, all in display order.
+        for m in &mut meanings {
+            let aligned = std::mem::take(&mut m.glosses);
+            for lang in &order {
+                let own = m.sense.gloss_text(lang);
+                if !own.is_empty() {
+                    m.glosses.push((lang, own));
+                } else if let Some((_, text)) = aligned.iter().find(|(l, _)| l == lang) {
+                    m.glosses.push((lang, text.clone()));
+                }
+            }
+        }
+        Grouped { meanings, blocks }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sense(lang: &str, texts: &[&str]) -> Sense {
+        Sense {
+            glosses: texts
+                .iter()
+                .map(|t| Gloss {
+                    lang: lang.into(),
+                    text: (*t).into(),
+                })
+                .collect(),
+            ..Sense::default()
+        }
+    }
+
+    fn entry(senses: Vec<Sense>) -> Entry {
+        Entry {
+            senses,
+            ..Entry::default()
+        }
+    }
+
+    fn pref(langs: &[&str]) -> Vec<String> {
+        langs.iter().map(|l| l.to_string()).collect()
+    }
+
+    fn glosses<'a>(m: &'a Meaning<'a>) -> Vec<(&'a str, &'a str)> {
+        m.glosses.iter().map(|(l, t)| (*l, t.as_str())).collect()
+    }
+
+    #[test]
+    fn equal_counts_line_up_by_position() {
+        let e = entry(vec![
+            sense("eng", &["hand", "arm"]),
+            sense("eng", &["handle"]),
+            sense("ger", &["Hand"]),
+            sense("ger", &["Griff"]),
+            sense("dut", &["hand"]),
+        ]);
+        let g = e.grouped(&pref(&["ger", "eng"]));
+        assert_eq!(g.meanings.len(), 2);
+        assert_eq!(glosses(&g.meanings[0]), [("ger", "Hand"), ("eng", "hand; arm")]);
+        assert_eq!(glosses(&g.meanings[1]), [("ger", "Griff"), ("eng", "handle")]);
+        assert_eq!(g.blocks.len(), 1);
+        assert_eq!(g.blocks[0].lang, "dut");
+        assert_eq!(g.blocks[0].senses, [&e.senses[4]]);
+    }
+
+    #[test]
+    fn blocks_follow_the_preferred_order_then_the_entry_order() {
+        let e = entry(vec![
+            sense("eng", &["cat"]),
+            sense("fre", &["chat"]),
+            sense("fre", &["minou"]),
+            sense("dut", &["kat"]),
+            sense("dut", &["poes"]),
+        ]);
+        let g = e.grouped(&pref(&["dut", "eng"]));
+        assert_eq!(g.meanings.len(), 1);
+        assert_eq!(glosses(&g.meanings[0]), [("eng", "cat")]);
+        let langs: Vec<&str> = g.blocks.iter().map(|b| b.lang).collect();
+        assert_eq!(langs, ["dut", "fre"]);
+    }
+
+    #[test]
+    fn old_style_mixed_senses_stay_inline() {
+        let mut mixed = sense("eng", &["cat"]);
+        mixed.glosses.push(Gloss {
+            lang: "ger".into(),
+            text: "Katze".into(),
+        });
+        let e = entry(vec![mixed]);
+        let g = e.grouped(&pref(&["ger", "eng"]));
+        assert_eq!(glosses(&g.meanings[0]), [("ger", "Katze"), ("eng", "cat")]);
+        assert!(g.blocks.is_empty());
+    }
+
+    #[test]
+    fn without_english_the_first_preferred_language_is_the_backbone() {
+        let e = entry(vec![
+            sense("ger", &["Hand"]),
+            sense("ger", &["Griff"]),
+            sense("fre", &["main"]),
+            sense("fre", &["poignée"]),
+        ]);
+        let g = e.grouped(&pref(&["fre", "eng"]));
+        assert_eq!(g.meanings.len(), 2);
+        assert_eq!(glosses(&g.meanings[0]), [("fre", "main"), ("ger", "Hand")]);
+        assert!(g.blocks.is_empty());
+        assert!(entry(Vec::new()).grouped(&pref(&["eng"])).meanings.is_empty());
+    }
+}
