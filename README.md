@@ -44,7 +44,9 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   button above the entry or a right-click on a result. Export as CSV, for
   Anki, Kitsun or Takoboto; import a CSV or a Takoboto export; back up all
   lists as JSON.
-- 🔗 **Takoboto.** Open an entry in Takoboto, and open Takoboto links in Tango.
+- 🔗 **Elsewhere.** Open an entry on Jisho, Wadoku, Japanese Wikipedia or
+  Wiktionary, or in Takoboto; open Takoboto links in Tango; a search that
+  finds nothing offers the same query on jisho.org.
 - 🗂️ **Dictionaries page.** Every source with version, import date and entry
   count; update, remove, toggle. Downloads and imports run in the background,
   queued, while you keep searching. Nothing is bundled; downloads happen on

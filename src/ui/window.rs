@@ -71,6 +71,8 @@ pub struct Window {
     back: gtk::Button,
     /// "Kanji 猫" under the search box when the query is one kanji with data behind it.
     kanji_hint: gtk::Button,
+    /// On the "No results" page: the query on jisho.org, in the browser.
+    search_online: gtk::Button,
     /// The results behind the rows, by row index.
     found: RefCell<Vec<Hit>>,
     /// The rows of a `#sentences` search instead; `found` is empty then.
@@ -126,6 +128,15 @@ impl Window {
             .icon_name("edit-find-symbolic")
             .vexpand(true)
             .build();
+        // The way out when the local dictionaries have nothing: the same query on jisho.org, in
+        // the browser. Nothing is fetched by Tango itself.
+        let search_online = gtk::Button::builder()
+            .label("Search on jisho.org")
+            .halign(gtk::Align::Center)
+            .css_classes(["pill"])
+            .sensitive(false)
+            .build();
+        no_results.set_child(Some(&search_online));
         results.set_placeholder(Some(&no_results));
         let scroller = gtk::ScrolledWindow::builder()
             .child(&results)
@@ -249,12 +260,10 @@ impl Window {
             .sensitive(false)
             .popover(&gtk::Popover::new())
             .build();
-        let open_menu = gio::Menu::new();
-        open_menu.append(Some("Takoboto"), Some("win.open-in::takoboto"));
         let open_in = gtk::MenuButton::builder()
             .icon_name("external-link-symbolic")
-            .menu_model(&open_menu)
-            .tooltip_text("Open in another dictionary")
+            .menu_model(&open_in_menu(false))
+            .tooltip_text("Open on another site")
             .sensitive(false)
             .build();
         content_header.pack_end(&open_in);
@@ -329,6 +338,7 @@ impl Window {
             sentence_view,
             back,
             kanji_hint,
+            search_online,
             found: RefCell::new(Vec::new()),
             found_sentences: RefCell::new(Vec::new()),
             current: RefCell::new(None),
@@ -378,6 +388,15 @@ impl Window {
             #[weak]
             this,
             move |_| this.leave_kanji()
+        ));
+        this.search_online.connect_clicked(clone!(
+            #[weak]
+            this,
+            move |_| {
+                let query = this.search.text().to_string();
+                let escaped = glib::Uri::escape_string(query.trim(), None, false);
+                this.open_url(&format!("https://jisho.org/search/{escaped}"));
+            }
         ));
         this.kanji_hint.connect_clicked(clone!(
             #[weak]
@@ -650,16 +669,26 @@ impl Window {
         }
     }
 
-    /// The current entry on another site. Takoboto uses JMdict numbers, so only those link.
+    /// The current entry on another site: its headword on the search or article page there.
+    /// Takoboto links by JMdict number, so only those entries get that item.
     fn open_in(&self, site: &str) {
         let Some(entry) = self.current.borrow().clone() else {
             return;
         };
+        let word = glib::Uri::escape_string(entry.headword(), None, false);
         let url = match site {
             "takoboto" if entry.source == "jmdict" => format!("https://takoboto.jp/?w={}", entry.id),
+            "jisho" => format!("https://jisho.org/search/{word}"),
+            "wadoku" => format!("https://www.wadoku.de/search/{word}"),
+            "wikipedia" => format!("https://ja.wikipedia.org/wiki/{word}"),
+            "wiktionary" => format!("https://ja.wiktionary.org/wiki/{word}"),
             _ => return,
         };
-        gtk::UriLauncher::new(&url).launch(Some(&self.win), gio::Cancellable::NONE, |result| {
+        self.open_url(&url);
+    }
+
+    fn open_url(&self, url: &str) {
+        gtk::UriLauncher::new(url).launch(Some(&self.win), gio::Cancellable::NONE, |result| {
             if let Err(e) = result {
                 log::warn!("cannot open {e}");
             }
@@ -677,8 +706,10 @@ impl Window {
         });
         self.star.set_sensitive(current.is_some());
         self.add_to_list.set_sensitive(current.is_some());
-        self.open_in
-            .set_sensitive(current.as_ref().is_some_and(|e| e.source == "jmdict"));
+        self.open_in.set_sensitive(current.is_some());
+        self.open_in.set_menu_model(Some(&open_in_menu(
+            current.as_ref().is_some_and(|e| e.source == "jmdict"),
+        )));
         self.star.set_active(starred);
         self.star.set_icon_name(if starred {
             "starred-symbolic"
@@ -1137,9 +1168,16 @@ impl Window {
             started.elapsed().as_millis()
         );
         self.no_results.set_description(outcome.hint.as_deref());
+        // Toggling the button's visibility inside the placeholder made the whole page vanish
+        // after a search, so it stays and is merely insensitive without a query.
+        self.search_online.set_sensitive(!query.trim().is_empty());
         self.update_kanji_hint(query);
         let any = !outcome.hits.is_empty() || !outcome.sentences.is_empty();
-        self.results.remove_all();
+        // Not `remove_all`: that takes the placeholder ("No results") with it, so the sidebar
+        // stayed blank after a search that found nothing.
+        while let Some(row) = self.results.row_at_index(0) {
+            self.results.remove(&row);
+        }
         *self.found.borrow_mut() = outcome.hits;
         *self.found_sentences.borrow_mut() = outcome.sentences;
         for sentence in self.found_sentences.borrow().iter() {
@@ -1465,6 +1503,19 @@ impl Window {
             }
         });
     }
+}
+
+/// The sites an entry can be opened on; Takoboto only for JMdict entries (it links by number).
+fn open_in_menu(jmdict: bool) -> gio::Menu {
+    let menu = gio::Menu::new();
+    menu.append(Some("Jisho"), Some("win.open-in::jisho"));
+    menu.append(Some("Wadoku"), Some("win.open-in::wadoku"));
+    menu.append(Some("Wikipedia (Japanese)"), Some("win.open-in::wikipedia"));
+    menu.append(Some("Wiktionary (Japanese)"), Some("win.open-in::wiktionary"));
+    if jmdict {
+        menu.append(Some("Takoboto"), Some("win.open-in::takoboto"));
+    }
+    menu
 }
 
 fn group_header(word: &str) -> gtk::Label {
