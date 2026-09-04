@@ -33,6 +33,11 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   `TANGO_USER_DB` so they never touch Felix's lists.
 - **Roadmap order is in `docs/ROADMAP.md`** and as GitHub milestones 0.2–0.6.
   Work them in that order unless Felix says otherwise.
+- **Sources (0.5):** JMdict, Wadoku, JMnedict (names: exact matches and
+  `#names` only), JLPT lists (opt-in, unofficial), KANJIDIC2, KanjiVG,
+  RADKFILE, Tatoeba. Downloads and imports run through the job queue in
+  `src/ui/jobs.rs`, one at a time; a schema bump re-imports every cached
+  source on the next start.
 
 ## Working here
 
@@ -40,6 +45,9 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   (max_width 110) must stay clean; CI runs exactly those plus shellcheck.
 - Headless UI checks: `TANGO_AUTOPILOT` script + `TANGO_DB` + cage + grim,
   see `docs/DEVELOPMENT.md`. The real JMdict imports in ~13 s (release).
+  Use the `wait` step after `import`; cage cannot resize windows.
+- `gtk::ListBox::remove_all` removes the placeholder too; remove rows one
+  by one (window.rs `run_search`).
 - Stop headless runs by PID, never `pkill` by name (took Hyprland down once).
 - Felix's Hyprland uses the Lua config: `hyprctl dispatch movecursor 1 2` is a
   syntax error there, so drive the app through `TANGO_AUTOPILOT` instead.
@@ -56,5 +64,6 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
 
 Milestones on GitHub, details in `docs/ROADMAP.md`: 0.2 Solid JMdict (#2 #3
 #9), 0.3 Search (#7 #16 #8), 0.4 Lists (#10 #14 #15), 0.5 More dictionaries
-(#4 #5 #6 #17 #18 #19 #20), 0.6 Accounts (#11 #12). #13 is the Jisho-parity
-umbrella; #16–#20 are its sub-issues.
+(#4 #5 #6 #17 #18 #19 #20, plus #31 #34 #36–#39), all released; 0.6 Accounts
+(#11 #12) is next. #13 is the Jisho-parity umbrella; #16–#20 are its
+sub-issues.

@@ -125,6 +125,40 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the code layout, tests,
 the autopilot for scripted UI runs and screenshots, the branch-and-release
 process, and a reading order for the Rust newcomer.
 
+## Manual checks
+
+What the headless runs cannot verify and Felix still has to try on a real
+desktop. Tick and delete when done; a bug goes into a new issue.
+
+- [ ] **#37 narrow sidebar.** Resize the window to about 830 px wide: the
+  Search / Lists / Kanji switcher should show icons with the label
+  underneath instead of "Se… / Li… / Ka…"; below 640 px the sidebar takes
+  the whole window and the switcher stays narrow.
+- [ ] **#36 background queue.** On the Dictionaries page click Download on
+  three sources in a row: the rows show "Queued…" then the progress line, a
+  spinner turns in the sidebar header, the search keeps working, and
+  closing the window asks "Keep running / Quit anyway".
+- [ ] **#36 rebuild.** After the next schema bump a toast says the
+  dictionaries are being imported again and every cached source comes back
+  by itself; "Import downloaded copy" appears on sources with a cached file.
+- [ ] **#38 hide parts.** Kanji page: pick 田, press the eye toggle: the
+  parts that no longer fit disappear and their stroke groups collapse; the
+  setting survives a restart.
+- [ ] **#39 spacing.** The search entry, the Kanji page and the "Add to list"
+  popover keep 12 px from the edges on a normal and on a HiDPI screen.
+- [ ] **#20 links.** The "Open on another site" button offers Jisho, Wadoku,
+  Wikipedia and Wiktionary for a Wadoku entry and adds Takoboto for a JMdict
+  entry; a search that finds nothing offers "Search on jisho.org", and both
+  open the browser.
+- [ ] **#19 JLPT.** Download "JLPT" on the Dictionaries page (about 400 kB),
+  then search `#jlpt-n5` and open 食べる: the green N5 chips show.
+- [ ] **#6 sentences.** Open 猫, scroll to the example sentences, press
+  "Show all", then try `#sentences 猫が` and a word button on the sentence page.
+- [ ] **#17 details.** Open パソコン ("abbreviation" chip, "See also"
+  button) and アルバイト ("from German: Arbeit").
+- [ ] **#18 names.** Search 田中: the surname rows come after the word;
+  `#names さとう` lists names only.
+
 ## Name and licence
 
 単語 (*tango*) is the Japanese word for "word". MIT licence, see

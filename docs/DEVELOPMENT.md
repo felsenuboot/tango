@@ -210,10 +210,20 @@ headless `cage` compositor:
 
 ```
 export TANGO_DB=/tmp/tango-test/tango.sqlite TANGO_USER_DB=/tmp/tango-test/user.sqlite XDG_CONFIG_HOME=/tmp/tango-test/config
-TANGO_AUTOPILOT="sleep 2; import $HOME/.cache/tango/JMdict.gz; sleep 40; search 猫; sleep 2; select 0" \
+TANGO_AUTOPILOT="sleep 2; import $HOME/.cache/tango/JMdict.gz; wait; search 猫; sleep 2; select 0" \
 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
   cage -- sh -c './target/release/tango & sleep 49; grim shot.png; kill %1'
 ```
+
+`import` queues a job and `wait` blocks the script until the queue is empty,
+so several imports in a row are safe. With `RUST_LOG=tango=debug` every
+search logs a line, which a shell `until grep -q … ; do sleep 1; done` can
+wait for instead of guessing a sleep.
+
+What cage cannot do: it is a kiosk, so every window is fullscreen at the
+output's 1280×720 and the `resize` step has no effect; GTK 4 on Wayland
+ignores `GDK_SCALE` and `gtk-xft-dpi`, so narrow layouts and breakpoints
+cannot be pictured headless. Check those on a real desktop.
 
 `XDG_CONFIG_HOME` is redirected on purpose: GTK loads `~/.config/gtk-4.0/gtk.css`
 above every application style provider, and on a desktop that generates that file
