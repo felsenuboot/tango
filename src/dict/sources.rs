@@ -23,6 +23,9 @@ pub struct Source {
     pub licence_url: &'static str,
     /// Rough download size, for the status texts.
     pub size_mb: u32,
+    /// For sources whose download URL changes (dated files): finds the current one from the
+    /// page at `url` when given the page's text.
+    pub latest: Option<fn(&str) -> Option<String>>,
 }
 
 /// The full JMdict, all gloss languages (English, German, Dutch, French, Russian, ...), gzip'd.
@@ -36,10 +39,25 @@ pub const JMDICT: Source = Source {
     licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
     size_mb: 22,
+    latest: None,
+};
+
+/// Wadoku, Japanese–German with pitch accent. The dump is dated and published twice a year, so
+/// the URL is the downloads page and `latest` picks the newest file from it.
+pub const WADOKU: Source = Source {
+    id: "wadoku",
+    name: "Wadoku",
+    description: "Japanese–German with pitch accent, by wadoku.de.",
+    url: "https://www.wadoku.de/wiki/display/WAD/Downloads+und+Links",
+    filename: "wadoku-xml.tar.xz",
+    licence: "Wadoku dictionary licence (free software with attribution)",
+    licence_url: "https://www.wadoku.de/wiki/display/WAD/W%C3%B6rterbuch+Lizenz",
+    size_mb: 25,
+    latest: Some(crate::dict::wadoku::latest_url),
 };
 
 /// Every source, in the default search order.
-pub const SOURCES: &[&Source] = &[&JMDICT];
+pub const SOURCES: &[&Source] = &[&JMDICT, &WADOKU];
 
 pub fn by_id(id: &str) -> Option<&'static Source> {
     SOURCES.iter().find(|s| s.id == id).copied()
@@ -48,18 +66,32 @@ pub fn by_id(id: &str) -> Option<&'static Source> {
 /// `(bytes so far, total bytes if the server said)`
 pub type Progress<'a> = &'a mut dyn FnMut(u64, Option<u64>);
 
+const USER_AGENT: &str = concat!(
+    "tango/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/felsenuboot/tango)"
+);
+
+/// The URL to download `source` from now: its `url`, or the newest file its page lists.
+pub fn download_url(source: &Source) -> anyhow::Result<String> {
+    let Some(latest) = source.latest else {
+        return Ok(source.url.to_string());
+    };
+    let page = ureq::get(source.url)
+        .header("User-Agent", USER_AGENT)
+        .call()
+        .with_context(|| format!("reading {}", source.url))?
+        .body_mut()
+        .read_to_string()
+        .with_context(|| format!("reading {}", source.url))?;
+    latest(&page).with_context(|| format!("no download found on {}", source.url))
+}
+
 /// Fetches `url` into `dest`, via a `.part` file so a partial download is never mistaken for a whole one.
 pub fn download(url: &str, dest: &Path, progress: Progress) -> anyhow::Result<PathBuf> {
     let part = dest.with_extension("part");
     let mut response = ureq::get(url)
-        .header(
-            "User-Agent",
-            concat!(
-                "tango/",
-                env!("CARGO_PKG_VERSION"),
-                " (+https://github.com/felsenuboot/tango)"
-            ),
-        )
+        .header("User-Agent", USER_AGENT)
         .call()
         .with_context(|| format!("downloading {url}"))?;
     let total = response

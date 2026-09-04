@@ -41,11 +41,35 @@ pub struct Entry {
     pub id: i64,
     pub kanji: Vec<String>,
     pub readings: Vec<String>,
+    /// Pitch accent of the first reading: the mora after which the pitch drops, 0 for a flat
+    /// (heiban) word; several when the sources give alternatives. Empty when unknown.
+    pub pitch: Vec<u8>,
     pub senses: Vec<Sense>,
     pub common: bool,
 }
 
 impl Entry {
+    /// Wadoku puts the part of speech on the entry, JMdict on each sense. The reader collects
+    /// it here and `finish_wadoku` copies it onto every sense once they are all read.
+    pub(crate) fn senses_pos_pending(&mut self) -> &mut Vec<String> {
+        if self.senses.is_empty() {
+            self.senses.push(Sense::default());
+        }
+        &mut self.senses[0].pos
+    }
+
+    pub(crate) fn finish_wadoku(&mut self) {
+        // The first sense may be the grammar holder alone (no glosses): fold it into the rest.
+        if self.senses.first().is_some_and(|s| s.glosses.is_empty()) {
+            let holder = self.senses.remove(0);
+            for s in &mut self.senses {
+                if s.pos.is_empty() {
+                    s.pos = holder.pos.clone();
+                }
+            }
+        }
+    }
+
     pub fn headword(&self) -> &str {
         self.kanji
             .first()

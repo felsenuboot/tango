@@ -50,6 +50,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/main.rs` | entry point, application id, log setup |
 | `src/model.rs` | `Entry`, `Sense`, `Gloss`: the plain data everything else passes around |
 | `src/dict/jmdict.rs` | streaming JMdict XML reader, expands the DTD entities |
+| `src/dict/wadoku.rs` | streaming Wadoku XML reader: spellings, reading, accent numbers, grammar mapped to JMdict wording, German senses; unpacks the tar.xz |
 | `src/dict/sources.rs` | the source registry (id, name, URL, file, licence) and the download helper |
 | `src/search/mod.rs` | the search pipeline: romaji to kana, deinflection, database, hits with notes |
 | `src/search/query.rs` | the box syntax: `#tags`, `"exact"` quotes, `*`/`?` wildcards |
@@ -69,7 +70,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/ui/theme.rs` | colour scheme: follow the system, or force light / dark above the user's GTK CSS |
 | `src/config.rs` | JSON config in `~/.config/tango`, XDG paths |
 | `src/autopilot.rs` | scripted UI driving (below) |
-| `tests/fixtures/` | a seven-entry JMdict sample the unit tests use |
+| `tests/fixtures/` | a seven-entry JMdict sample and a five-entry Wadoku sample the unit tests use |
 | `packaging/arch/PKGBUILD` | the `tango-git` Arch package; `install.sh` builds it from the checkout |
 
 ## The two kinds of data

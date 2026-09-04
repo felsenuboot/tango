@@ -2,3 +2,4 @@
 
 pub mod jmdict;
 pub mod sources;
+pub mod wadoku;

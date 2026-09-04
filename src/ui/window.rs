@@ -753,7 +753,7 @@ impl Window {
         );
     }
 
-    /// Imports a local JMdict file: the menu action, the autopilot `import` step, the cached copy.
+    /// Imports a local JMdict file: the menu action and the cached copy.
     pub fn import_file(self: &Rc<Self>, file: PathBuf) {
         self.import_source_file(&sources::JMDICT, file, || {});
     }
@@ -879,6 +879,16 @@ fn result_row(hit: &Hit, langs: &[String], listed: bool) -> adw::ActionRow {
             .label("common")
             .valign(gtk::Align::Center)
             .css_classes(["tango-common"])
+            .build();
+        row.add_suffix(&tag);
+    }
+    if entry.source != "jmdict"
+        && let Some(source) = sources::by_id(&entry.source)
+    {
+        let tag = gtk::Label::builder()
+            .label(source.name)
+            .valign(gtk::Align::Center)
+            .css_classes(["tango-lang"])
             .build();
         row.add_suffix(&tag);
     }

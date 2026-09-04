@@ -1,7 +1,8 @@
 //! The dictionary database: one SQLite file, plain SQL.
 //!
-//! Schema v3: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
-//! source and the source's own number), `forms` (kanji and readings), `senses`, `glosses`, and
+//! Schema v4: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
+//! source and the source's own number, with its pitch accent), `forms` (kanji and readings),
+//! `senses`, `glosses`, and
 //! `gloss_fts`, an FTS5 index over the gloss text. Headwords and readings are prefix searches on
 //! the `forms_text` index; glosses go through FTS5 (a LIKE scan took half a second per keystroke
 //! on the full JMdict, FTS5 answers in a few milliseconds).
@@ -21,7 +22,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::model::{Entry, Gloss, Sense};
 
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS entries (
     source TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
     seq INTEGER NOT NULL,
     common INTEGER NOT NULL DEFAULT 0,
+    pitch TEXT NOT NULL DEFAULT '',   -- accent numbers of the first reading, comma-separated
     UNIQUE (source, seq)
 );
 CREATE TABLE IF NOT EXISTS forms (
@@ -312,15 +314,16 @@ impl Database {
     pub fn insert(&self, entries: &[Entry]) -> anyhow::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         {
-            let mut ins_entry =
-                tx.prepare_cached("INSERT INTO entries (source, seq, common) VALUES (?1, ?2, ?3)")?;
+            let mut ins_entry = tx
+                .prepare_cached("INSERT INTO entries (source, seq, common, pitch) VALUES (?1, ?2, ?3, ?4)")?;
             let mut ins_form = tx.prepare_cached("INSERT INTO forms VALUES (?1, ?2, ?3, ?4)")?;
             let mut ins_sense = tx.prepare_cached(
                 "INSERT INTO senses (entry_id, pos, parts, misc, fields) VALUES (?1, ?2, ?3, ?4, ?5)",
             )?;
             let mut ins_gloss = tx.prepare_cached("INSERT INTO glosses VALUES (?1, ?2, ?3, ?4)")?;
             for e in entries {
-                ins_entry.execute(params![e.source, e.id, e.common as i64])?;
+                let pitch = e.pitch.iter().map(u8::to_string).collect::<Vec<_>>().join(",");
+                ins_entry.execute(params![e.source, e.id, e.common as i64, pitch])?;
                 let entry_id = tx.last_insert_rowid();
                 for (i, k) in e.kanji.iter().enumerate() {
                     ins_form.execute(params![entry_id, "k", i as i64, k])?;
@@ -375,7 +378,7 @@ impl Database {
         // (internal id, entry) in query order; `index` maps the internal id to the position.
         let mut entries: Vec<(i64, Entry)> = Vec::with_capacity(ids.len());
         let mut stmt = self.conn.prepare(&format!(
-            "SELECT id, source, seq, common FROM entries WHERE id IN ({marks})"
+            "SELECT id, source, seq, common, pitch FROM entries WHERE id IN ({marks})"
         ))?;
         for row in stmt.query_map(params_from_iter(ids), |r| {
             Ok((
@@ -383,15 +386,17 @@ impl Database {
                 r.get::<_, String>(1)?,
                 r.get::<_, i64>(2)?,
                 r.get::<_, bool>(3)?,
+                r.get::<_, String>(4)?,
             ))
         })? {
-            let (id, source, seq, common) = row?;
+            let (id, source, seq, common, pitch) = row?;
             entries.push((
                 id,
                 Entry {
                     source,
                     id: seq,
                     common,
+                    pitch: pitch.split(',').filter_map(|n| n.parse().ok()).collect(),
                     ..Entry::default()
                 },
             ));
@@ -673,6 +678,12 @@ mod tests {
         let db = sample_db();
         let original = sample_entries().into_iter().find(|e| e.id == 1467640).unwrap();
         assert_eq!(db.get("jmdict", 1467640).unwrap(), Some(original));
+        db.begin_source("wadoku", WHEN).unwrap();
+        let mut with_pitch = sample_entries().into_iter().find(|e| e.id == 1467640).unwrap();
+        with_pitch.source = "wadoku".into();
+        with_pitch.pitch = vec![0, 3];
+        db.insert(std::slice::from_ref(&with_pitch)).unwrap();
+        assert_eq!(db.get("wadoku", 1467640).unwrap(), Some(with_pitch));
         assert_eq!(db.get("jmdict", 1).unwrap(), None);
         assert_eq!(db.get("other", 1467640).unwrap(), None);
     }
@@ -856,7 +867,7 @@ mod tests {
             .query_row("SELECT count(*) FROM glosses", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stale, 0);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("3"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("4"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -882,7 +893,7 @@ mod tests {
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
         assert_eq!(db.entry_count().unwrap(), 7);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("3"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("4"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

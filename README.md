@@ -34,15 +34,17 @@ Offline, with English and German glosses side by side.
   all lists as JSON.
   "Open in Takoboto" above an entry, and `tango https://takoboto.jp/?w=…`
   opens the entry from a link.
+- **Wadoku.** The Japanese–German dictionary from wadoku.de next to JMdict,
+  with pitch accent shown as ⓪ ① ② beside the reading. Search covers both;
+  a chip marks Wadoku entries.
 - **Dictionaries page.** Preferences lists every source with its version,
   import date and entry count, with update, remove and a search toggle per
-  dictionary. Today that is JMdict; the roadmap adds the others.
+  dictionary.
 - Adaptive layout (sidebar collapses on narrow windows), light and dark theme (follow the system or force one),
   keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+I` import, `Ctrl+,` preferences).
 
 ## Roadmap
 
-- Wadoku (German, with pitch accent) next to JMdict
 - Kanji view: KANJIDIC details, KanjiVG stroke order, radicals
 - Example sentences from Tatoeba
 
@@ -52,7 +54,7 @@ the order and the reasoning are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Install
 
-Rust 1.85+, GTK 4.12+, libadwaita 1.5+, SQLite.
+Rust 1.85+, GTK 4.12+, libadwaita 1.5+, SQLite, liblzma.
 
 ```
 git clone https://github.com/felsenuboot/tango.git
@@ -64,7 +66,7 @@ On Arch Linux that builds the `tango-git` package from the checkout
 (`packaging/arch/PKGBUILD`, following the Rust package guidelines) and installs
 it with pacman; `makepkg -si` in `packaging/arch` builds it from GitHub instead.
 Anywhere else it puts a release build into `~/.local/bin` with the desktop entry
-and icons (Debian/Ubuntu: `cargo libgtk-4-dev libadwaita-1-dev libsqlite3-dev`).
+and icons (Debian/Ubuntu: `cargo libgtk-4-dev libadwaita-1-dev libsqlite3-dev liblzma-dev`).
 Or just `cargo run` from the checkout. There is no Flatpak, and Flathub is not
 planned.
 
@@ -74,6 +76,11 @@ planned.
   the property of the Electronic Dictionary Research and Development Group and
   used under its [licence](https://www.edrdg.org/edrdg/licence.html)
   (CC BY-SA 4.0). The app downloads it on first use; nothing is bundled.
+- [Wadoku](https://www.wadoku.de/) (Japanese–German, with pitch accent) is
+  © Ulrich Apel and the Wadoku.de contributors, used under the
+  [Wadoku dictionary licence](https://www.wadoku.de/wiki/display/WAD/W%C3%B6rterbuch+Lizenz),
+  which allows use in free software with attribution. Downloaded on request
+  from the Dictionaries page; nothing is bundled.
 
 ## Development
 

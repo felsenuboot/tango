@@ -2,6 +2,7 @@
 
 use adw::prelude::*;
 
+use crate::dict::sources;
 use crate::model::{Entry, LanguageBlock, Sense};
 
 fn lang_name(lang: &str) -> String {
@@ -90,14 +91,33 @@ impl EntryView {
                 .build();
             head.append(&tag);
         }
+        if entry.source != "jmdict"
+            && let Some(source) = sources::by_id(&entry.source)
+        {
+            let tag = gtk::Label::builder()
+                .label(source.name)
+                .valign(gtk::Align::End)
+                .margin_bottom(10)
+                .tooltip_text(source.licence)
+                .css_classes(["tango-lang"])
+                .build();
+            head.append(&tag);
+        }
         self.body.append(&head);
         let readings: &[String] = if entry.kanji.is_empty() {
             &entry.readings[1..]
         } else {
             &entry.readings
         };
-        if !readings.is_empty() {
-            self.body.append(&label(&readings.join("、"), &["tango-reading"]));
+        if !readings.is_empty() || !entry.pitch.is_empty() {
+            let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            if !readings.is_empty() {
+                line.append(&label(&readings.join("、"), &["tango-reading"]));
+            }
+            for pitch in &entry.pitch {
+                line.append(&pitch_chip(*pitch));
+            }
+            self.body.append(&line);
         }
         if entry.kanji.len() > 1 {
             let also = format!("Also written {}", entry.kanji[1..].join("、"));
@@ -120,6 +140,26 @@ impl EntryView {
         }
         self.root.vadjustment().set_value(0.0);
     }
+}
+
+/// ⓪ ① ② … for the accent number, with the meaning in the tooltip.
+fn pitch_chip(pitch: u8) -> gtk::Label {
+    let symbol = match pitch {
+        0 => '⓪',
+        1..=20 => char::from_u32(0x2460 + u32::from(pitch) - 1).unwrap_or('?'),
+        _ => '?',
+    };
+    let tooltip = if pitch == 0 {
+        "Pitch accent: flat (heiban), no drop".to_string()
+    } else {
+        format!("Pitch accent: the pitch drops after mora {pitch}")
+    };
+    gtk::Label::builder()
+        .label(symbol.to_string())
+        .valign(gtk::Align::Center)
+        .tooltip_text(tooltip)
+        .css_classes(["tango-pitch"])
+        .build()
 }
 
 fn language_block(block: &LanguageBlock) -> gtk::Box {

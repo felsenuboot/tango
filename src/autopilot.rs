@@ -6,7 +6,7 @@
 //!   sleep <seconds>      wait
 //!   search <text>        type into the search entry
 //!   select <index>       select the result row at that index
-//!   import <path>        import a JMdict file (plain or .gz) into the database, in the background
+//!   import [source] <path>   import a dictionary file (JMdict when no source id is given)
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
 //!   star                 toggle the current entry in Favourites
 //!   sidebar search|lists show that sidebar page
@@ -58,7 +58,16 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         "sleep" => delay = Duration::from_secs_f64(arg.parse().unwrap_or(1.0)),
         "search" => win.search.set_text(arg),
         "select" => win.select_result(arg.parse().unwrap_or(0)),
-        "import" => win.import_file(PathBuf::from(arg)),
+        "import" => {
+            let (source, path) = match arg.split_once(' ') {
+                Some((id, path)) if crate::dict::sources::by_id(id).is_some() => (
+                    crate::dict::sources::by_id(id).unwrap_or(&crate::dict::sources::JMDICT),
+                    path,
+                ),
+                _ => (&crate::dict::sources::JMDICT, arg),
+            };
+            win.import_source_file(source, PathBuf::from(path), || {});
+        }
         "theme" => crate::ui::theme::apply(crate::ui::theme::Scheme::from_name(arg)),
         "preferences" => crate::ui::preferences::show(&win, (!arg.is_empty()).then_some(arg)),
         "menu" => {
