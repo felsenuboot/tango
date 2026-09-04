@@ -5,7 +5,7 @@
 //! main window so application actions (`app.preferences`, `app.about`) can reach it.
 
 pub mod entry_view;
-pub mod import_dialog;
+pub mod jobs;
 pub mod kanji_view;
 pub mod lists;
 pub mod preferences;
@@ -95,8 +95,12 @@ pub fn activate(app: &adw::Application) {
             return;
         }
     };
+    let rebuilt = db.was_rebuilt();
     let win = Window::new(app, config, db, db_path, user);
     WINDOW.with(|w| *w.borrow_mut() = Some(win.clone()));
+    if rebuilt {
+        win.reimport_cached();
+    }
     crate::autopilot::install(app, &win);
     win.win.present();
 }

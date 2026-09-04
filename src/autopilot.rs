@@ -6,7 +6,8 @@
 //!   sleep <seconds>      wait
 //!   search <text>        type into the search entry
 //!   select <index>       select the result row at that index
-//!   import [source] <path>   import a dictionary file (JMdict when no source id is given)
+//!   import [source] <path>   queue an import of a dictionary file (JMdict when no source id is given)
+//!   wait                 wait until the job queue (downloads, imports) is empty
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
 //!   kanji <char>         show the kanji page for that character
 //!   radical <r>          toggle that radical on the Kanji sidebar page
@@ -71,6 +72,12 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
             };
             win.import_source_file(source, PathBuf::from(path), || {});
         }
+        "wait" => {
+            if win.jobs().is_busy() {
+                steps.push_front("wait".into());
+                delay = Duration::from_millis(500);
+            }
+        }
         "theme" => crate::ui::theme::apply(crate::ui::theme::Scheme::from_name(arg)),
         "preferences" => crate::ui::preferences::show(&win, (!arg.is_empty()).then_some(arg)),
         "menu" => {
@@ -123,10 +130,16 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         }
         "scroll" => win.scroll_content(arg == "end"),
         "state" => log::info!(
-            "autopilot state: search={:?} results={} selected={:?}",
+            "autopilot state: search={:?} results={} selected={:?} jobs={}",
             win.search.text(),
             win.result_count(),
-            win.current_entry_id()
+            win.current_entry_id(),
+            win.jobs().current().map_or("idle".to_string(), |c| format!(
+                "{} ({}), {} queued",
+                c.title,
+                c.message,
+                win.jobs().queued()
+            ))
         ),
         "quit" => {
             app.quit();

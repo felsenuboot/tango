@@ -15,6 +15,7 @@
 //!
 //! A `Connection` is not `Sync`, so each thread opens its own `Database` (the import worker does).
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -199,6 +200,8 @@ pub struct SourceStatus {
 
 pub struct Database {
     conn: Connection,
+    /// The file had an older schema and was emptied on open; the cached downloads want importing.
+    rebuilt: Cell<bool>,
 }
 
 impl Database {
@@ -208,8 +211,12 @@ impl Database {
         conn.execute_batch(
             "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;",
         )?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            rebuilt: Cell::new(false),
+        };
         db.prepare_schema()?;
+        db.drop_interrupted_imports()?;
         Ok(db)
     }
 
@@ -217,7 +224,10 @@ impl Database {
     pub fn open_in_memory() -> anyhow::Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Self { conn };
+        let db = Self {
+            conn,
+            rebuilt: Cell::new(false),
+        };
         db.prepare_schema()?;
         Ok(db)
     }
@@ -240,6 +250,7 @@ impl Database {
                     stored.as_deref().unwrap_or("?")
                 );
                 self.drop_everything(&tables)?;
+                self.rebuilt.set(true);
             }
         }
         self.conn.execute_batch(SCHEMA)?;
@@ -247,6 +258,26 @@ impl Database {
             "INSERT OR IGNORE INTO meta VALUES ('schema', ?1)",
             params![SCHEMA_VERSION.to_string()],
         )?;
+        Ok(())
+    }
+
+    /// Whether `open` found an older schema and emptied the file.
+    pub fn was_rebuilt(&self) -> bool {
+        self.rebuilt.get()
+    }
+
+    /// A source row with no entries is an import the app was closed in the middle of (the count
+    /// is written last). Its leftovers go, so it shows as not installed rather than empty.
+    fn drop_interrupted_imports(&self) -> anyhow::Result<()> {
+        let ids: Vec<String> = self
+            .conn
+            .prepare("SELECT id FROM sources WHERE entries = 0")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        for id in ids {
+            log::warn!("the {id} import was interrupted: dropping what it left behind");
+            self.remove_source(&id)?;
+        }
         Ok(())
     }
 
@@ -1392,6 +1423,16 @@ mod tests {
         db.remove_source("kanjidic").unwrap();
         assert!(!db.has_kanji_data().unwrap());
         assert!(db.strokes('猫').unwrap().is_some()); // other kanji sources untouched
+    }
+
+    #[test]
+    fn an_interrupted_import_is_dropped_on_open() {
+        let db = sample_db();
+        db.begin_source("wadoku", WHEN).unwrap();
+        db.drop_interrupted_imports().unwrap();
+        let ids: Vec<String> = db.sources().unwrap().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, ["jmdict"]);
+        assert!(!db.was_rebuilt());
     }
 
     #[test]

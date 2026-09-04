@@ -6,9 +6,11 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::glib::{self, clone};
 
+use super::jobs::State;
 use super::theme::{self, Scheme};
 use super::thousands;
 use super::window::Window;
+use crate::config::cache_dir;
 use crate::dict::sources::{self, Source};
 use crate::store::db::SourceStatus;
 
@@ -164,6 +166,14 @@ fn source_row(
         .subtitle(&subtitle)
         .tooltip_text(format!("{}\n{}", source.licence, source.licence_url))
         .build();
+    // The buttons go insensitive and a spinner appears while a job for this source is queued or
+    // running; the subtitle carries the job's progress line.
+    let buttons: Rc<std::cell::RefCell<Vec<gtk::Widget>>> = Default::default();
+    let spinner = gtk::Spinner::builder()
+        .visible(false)
+        .valign(gtk::Align::Center)
+        .build();
+    row.add_suffix(&spinner);
     // Makes a "rebuild this list" callback for the jobs to run when they are done. Weak
     // references, so a job finishing after the dialog closed does nothing.
     let (weak_list, weak_win) = (list.downgrade(), Rc::downgrade(win));
@@ -176,6 +186,7 @@ fn source_row(
         }
     };
 
+    let track = |button: &gtk::Button| buttons.borrow_mut().push(button.clone().upcast());
     if can_move_up {
         let up = gtk::Button::builder()
             .icon_name("go-up-symbolic")
@@ -198,6 +209,7 @@ fn source_row(
                 rebuild_sources(&list, &win);
             }
         ));
+        track(&up);
         row.add_suffix(&up);
     }
 
@@ -234,6 +246,7 @@ fn source_row(
             rebuild,
             move |_| win.download_source(source, rebuild())
         ));
+        track(&update);
         row.add_suffix(&update);
         let remove = gtk::Button::builder()
             .icon_name("user-trash-symbolic")
@@ -248,12 +261,42 @@ fn source_row(
             win,
             move |_| confirm_remove(&list, &win, source)
         ));
+        track(&remove);
         row.add_suffix(&remove);
     } else {
-        let download = gtk::Button::builder()
-            .label("Download")
-            .valign(gtk::Align::Center)
-            .build();
+        // One text button, the rest icons, so the row keeps room for its title. With a cached
+        // download the text button imports that; downloading again moves to an icon.
+        let cached = cache_dir().join(source.filename);
+        let has_cache = cached.exists();
+        if has_cache {
+            let import = gtk::Button::builder()
+                .label("Import downloaded copy")
+                .valign(gtk::Align::Center)
+                .tooltip_text(format!(
+                    "Import {} without downloading it again",
+                    cached.display()
+                ))
+                .build();
+            import.connect_clicked(clone!(
+                #[weak]
+                win,
+                #[strong]
+                rebuild,
+                move |_| win.import_source_file(source, cached.clone(), rebuild())
+            ));
+            track(&import);
+            row.add_suffix(&import);
+        }
+        let download = if has_cache {
+            gtk::Button::builder()
+                .icon_name("folder-download-symbolic")
+                .css_classes(["flat"])
+                .tooltip_text(format!("Download today's {} instead", source.name))
+        } else {
+            gtk::Button::builder().label("Download")
+        }
+        .valign(gtk::Align::Center)
+        .build();
         download.connect_clicked(clone!(
             #[weak]
             win,
@@ -261,9 +304,12 @@ fn source_row(
             rebuild,
             move |_| win.download_source(source, rebuild())
         ));
+        track(&download);
         row.add_suffix(&download);
         let file = gtk::Button::builder()
-            .label("Import file…")
+            .icon_name("document-open-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(format!("Import a {} file from disk", source.name))
             .valign(gtk::Align::Center)
             .build();
         file.connect_clicked(clone!(
@@ -273,8 +319,51 @@ fn source_row(
             rebuild,
             move |_| win.choose_import_file(source, rebuild())
         ));
+        track(&file);
         row.add_suffix(&file);
     }
+
+    let jobs = win.jobs().clone();
+    let apply = Rc::new(clone!(
+        #[weak]
+        row,
+        #[weak]
+        spinner,
+        move || {
+            let state = jobs.state(source.id);
+            let (line, active) = match &state {
+                State::Idle => (None, false),
+                State::Queued => (Some("Queued…".to_string()), true),
+                State::Running { message, fraction } => (
+                    Some(match fraction {
+                        Some(f) => format!("{message} ({:.0} %)", f * 100.0),
+                        None => message.clone(),
+                    }),
+                    true,
+                ),
+            };
+            // While a job runs the entry count is stale (the import registers the source first),
+            // so the row shows the description and the progress line only.
+            row.set_subtitle(&match line {
+                Some(line) => format!("{}\n{line}", source.description),
+                None => subtitle.clone(),
+            });
+            spinner.set_visible(active);
+            spinner.set_spinning(active);
+            for button in buttons.borrow().iter() {
+                button.set_sensitive(!active);
+            }
+        }
+    ));
+    apply();
+    let weak_row = row.downgrade();
+    win.jobs().connect(move || {
+        if weak_row.upgrade().is_none() {
+            return false;
+        }
+        apply();
+        true
+    });
     row
 }
 

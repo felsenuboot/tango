@@ -67,7 +67,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
 | `src/ui/entry_view.rs` | renders one entry |
-| `src/ui/import_dialog.rs` | progress dialog + worker thread + channel |
+| `src/ui/jobs.rs` | the job queue: one worker thread, downloads/imports/removals one after the other, progress through a channel |
 | `src/ui/preferences.rs` | preferences dialog: General, and Dictionaries (installed sources) |
 | `src/ui/lists.rs` | the Lists sidebar page: lists, one list's entries, rename/delete/export/import |
 | `src/ui/kanji_view.rs` | the kanji page: diagram, facts, readings, meanings, parts, words with the kanji |
@@ -84,8 +84,10 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 The dictionary database (`~/.local/share/tango/tango.sqlite`) is derived data:
 every row can be imported again from the downloads in `~/.cache/tango`. So a
 schema version bump (`SCHEMA_VERSION` in `src/store/db.rs`) does not migrate
-anything; `Database::open` drops the tables and the app shows the empty state
-with an "Import the downloaded copy" button. User data lives in `user.sqlite`
+anything; `Database::open` drops the tables and the app queues an import of
+every source whose download is still in the cache (a toast says so). A
+source row with no entries is an import the app was closed in the middle
+of; `open` drops it too. User data lives in `user.sqlite`
 next to it (`src/store/user.rs`): word lists, migrated forward with
 `PRAGMA user_version` and never dropped, precisely so the dictionary file can
 stay disposable. A list entry keeps the headword, reading and first gloss it
@@ -260,9 +262,11 @@ Idioms you will meet in the UI:
   to the window struct. A strong `Rc` inside a closure owned by the window
   would keep it alive forever. `#[upgrade_or]` gives the return value when the
   window is already gone.
-- **Worker threads talk through channels.** `import_dialog.rs` spawns a thread,
-  which sends `Progress` messages over `async_channel`; a future on the GLib
-  main loop applies them to widgets. Widgets never leave the main thread.
+- **Worker threads talk through channels.** `jobs.rs` spawns a thread per
+  job, which sends `Progress` messages over `async_channel`; a future on the
+  GLib main loop applies them and tells the listeners (the Dictionaries page
+  rows, the header spinner). Widgets never leave the main thread. Jobs run
+  one at a time, so there is never a second writer on the SQLite file.
 - **Traits must be in scope.** Most widget methods come from extension traits,
   hence `use adw::prelude::*;` in every UI file (it re-exports GTK's prelude).
 - **`anyhow::Result`** everywhere errors can happen; `.with_context(|| …)`

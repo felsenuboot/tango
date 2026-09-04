@@ -9,7 +9,7 @@ use adw::prelude::*;
 use gtk::{gdk, gio, glib, glib::clone};
 
 use super::entry_view::EntryView;
-use super::import_dialog;
+use super::jobs::{self, Jobs};
 use super::kanji_view::KanjiView;
 use super::lists::{ListsPage, ask_name};
 use super::radicals::RadicalsPage;
@@ -38,6 +38,13 @@ pub struct Window {
     pub menu_button: gtk::MenuButton,
     /// "Import the downloaded copy" on the empty state, shown when the cache has a JMdict file.
     import_cached: gtk::Button,
+    download_jmdict: gtk::Button,
+    /// Under the empty state's buttons: what the queue is doing.
+    job_status: gtk::Label,
+    /// Downloads, imports and removals, one after the other on a worker thread.
+    jobs: Rc<Jobs>,
+    /// In the sidebar header while a job runs.
+    busy: gtk::Spinner,
     config: Rc<RefCell<Config>>,
     db: Rc<Database>,
     db_path: PathBuf,
@@ -108,6 +115,8 @@ impl Window {
         keep_menu_out_of_reserved_strip(&win, &menu_button);
         let header = adw::HeaderBar::new();
         header.pack_end(&menu_button);
+        let busy = gtk::Spinner::builder().visible(false).build();
+        header.pack_end(&busy);
         let results = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::Single)
             .css_classes(["navigation-sidebar"])
@@ -195,6 +204,11 @@ impl Window {
             .css_classes(["pill"])
             .visible(false)
             .build();
+        let job_status = gtk::Label::builder()
+            .wrap(true)
+            .justify(gtk::Justification::Center)
+            .css_classes(["dim-label"])
+            .build();
         let actions = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .spacing(12)
@@ -202,6 +216,7 @@ impl Window {
             .build();
         actions.append(&download);
         actions.append(&import_cached);
+        actions.append(&job_status);
         no_dictionary.set_child(Some(&actions));
         let stack = gtk::Stack::builder()
             .transition_type(gtk::StackTransitionType::Crossfade)
@@ -267,6 +282,10 @@ impl Window {
             search,
             menu_button,
             import_cached,
+            download_jmdict: download.clone(),
+            job_status,
+            jobs: Jobs::new(),
+            busy,
             config,
             db,
             db_path,
@@ -425,12 +444,28 @@ impl Window {
             #[upgrade_or]
             glib::Propagation::Proceed,
             move |win| {
-                let mut cfg = this.config.borrow_mut();
-                cfg.window.width = win.width();
-                cfg.window.height = win.height();
-                cfg.window.maximized = win.is_maximized();
-                cfg.save();
+                {
+                    let mut cfg = this.config.borrow_mut();
+                    cfg.window.width = win.width();
+                    cfg.window.height = win.height();
+                    cfg.window.maximized = win.is_maximized();
+                    cfg.save();
+                }
+                if let Some(current) = this.jobs.current() {
+                    this.confirm_quit(&current.title);
+                    return glib::Propagation::Stop;
+                }
                 glib::Propagation::Proceed
+            }
+        ));
+        this.jobs.connect(clone!(
+            #[weak]
+            this,
+            #[upgrade_or]
+            false,
+            move || {
+                this.refresh_busy();
+                true
             }
         ));
 
@@ -440,6 +475,67 @@ impl Window {
     }
 
     // -- state ------------------------------------------------------------------------------
+
+    /// The header spinner and the empty state follow the job queue.
+    fn refresh_busy(&self) {
+        let current = self.jobs.current();
+        self.busy.set_visible(current.is_some());
+        self.busy.set_spinning(current.is_some());
+        let queued = self.jobs.queued();
+        let status = match &current {
+            Some(c) if queued > 0 => format!("{}: {} ({queued} more queued)", c.title, c.message),
+            Some(c) => format!("{}: {}", c.title, c.message),
+            None => String::new(),
+        };
+        self.busy.set_tooltip_text(Some(&status));
+        self.job_status.set_text(&status);
+        self.download_jmdict.set_sensitive(current.is_none());
+        self.import_cached.set_sensitive(current.is_none());
+    }
+
+    /// Closing the window while a job runs: keep it running, or quit and lose the job.
+    fn confirm_quit(self: &Rc<Self>, title: &str) {
+        let dialog = adw::AlertDialog::builder()
+            .heading("A job is still running")
+            .body(format!(
+                "{title} is not finished. Quitting now stops it; an interrupted import is dropped and \
+                 can be started again."
+            ))
+            .build();
+        dialog.add_responses(&[("keep", "Keep running"), ("quit", "Quit anyway")]);
+        dialog.set_response_appearance("quit", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("keep"));
+        dialog.set_close_response("keep");
+        dialog.connect_response(
+            Some("quit"),
+            clone!(
+                #[weak(rename_to = this)]
+                self,
+                move |_, _| this.win.destroy()
+            ),
+        );
+        dialog.present(Some(&self.win));
+    }
+
+    pub fn jobs(&self) -> &Rc<Jobs> {
+        &self.jobs
+    }
+
+    /// After a schema rebuild: imports every source whose download is still in the cache.
+    pub fn reimport_cached(self: &Rc<Self>) {
+        let cached: Vec<&'static Source> = sources::SOURCES
+            .iter()
+            .copied()
+            .filter(|s| cache_dir().join(s.filename).exists())
+            .collect();
+        if cached.is_empty() {
+            return;
+        }
+        self.toast("The dictionary database was rebuilt for this version; importing the downloaded dictionaries again.");
+        for source in cached {
+            self.import_source_file(source, cache_dir().join(source.filename), || {});
+        }
+    }
 
     fn refresh_state(&self) {
         let count = self.db.entry_count().unwrap_or(0);
@@ -1198,12 +1294,14 @@ impl Window {
 
     // -- import -----------------------------------------------------------------------------
 
-    /// Downloads `source` into the cache and imports it, replacing what the database had of it.
-    /// `after` runs on the main thread once the job is done, success or not.
+    /// Queues a download of `source` into the cache and its import, replacing what the database
+    /// had of it. `after` runs on the main thread once the job is done, success or not.
     pub fn download_source(self: &Rc<Self>, source: &'static Source, after: impl FnOnce() + 'static) {
         let path = self.db_path.clone();
         let cache = cache_dir();
         self.run_job(
+            source,
+            format!("Downloading {}", source.name),
             move |report| {
                 let db = Database::open(&path)?;
                 let n = import::download_and_import(&db, source, &cache, report)?;
@@ -1230,6 +1328,8 @@ impl Window {
     ) {
         let path = self.db_path.clone();
         self.run_job(
+            source,
+            format!("Importing {}", source.name),
             move |report| {
                 let db = Database::open(&path)?;
                 let n = import::import_file(&db, source, &file, report)?;
@@ -1247,6 +1347,8 @@ impl Window {
         let path = self.db_path.clone();
         let cache = cache_dir();
         self.run_job(
+            source,
+            format!("Removing {}", source.name),
             move |report| {
                 let db = Database::open(&path)?;
                 import::remove(&db, source, &cache, report)?;
@@ -1256,15 +1358,17 @@ impl Window {
         );
     }
 
-    /// Runs a job on the worker thread behind the progress dialog; the job's `Ok` text becomes a
-    /// toast. Then the window state and the search are refreshed and `after` runs.
+    /// Queues a job for the worker thread; its `Ok` text becomes a toast when it is done. Then
+    /// the window state and the search are refreshed and `after` runs.
     fn run_job(
         self: &Rc<Self>,
+        source: &'static Source,
+        title: String,
         job: impl FnOnce(import::Report) -> anyhow::Result<String> + Send + 'static,
         after: impl FnOnce() + 'static,
     ) {
         let this = Rc::downgrade(self);
-        import_dialog::run(&self.win, job, move |result| {
+        let done: jobs::DoneFn = Box::new(move |result| {
             let Some(this) = this.upgrade() else { return };
             match result {
                 Ok(message) => this.toasts.add_toast(adw::Toast::new(&message)),
@@ -1281,6 +1385,7 @@ impl Window {
             this.radicals.refresh();
             after();
         });
+        self.jobs.enqueue(source.id, title, Box::new(job), done);
     }
 
     pub fn choose_import_file(self: &Rc<Self>, source: &'static Source, after: impl FnOnce() + 'static) {
@@ -1288,6 +1393,9 @@ impl Window {
         filter.set_name(Some(&format!("{} file", source.name)));
         filter.add_pattern("*.xml");
         filter.add_pattern("*.gz");
+        filter.add_pattern("*.bz2");
+        filter.add_pattern("*.xz");
+        filter.add_pattern("*.zip");
         filter.add_pattern(&format!("{}*", source.name));
         let filters = gio::ListStore::new::<gtk::FileFilter>();
         filters.append(&filter);

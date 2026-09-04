@@ -41,7 +41,8 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   lists as JSON.
 - 🔗 **Takoboto.** Open an entry in Takoboto, and open Takoboto links in Tango.
 - 🗂️ **Dictionaries page.** Every source with version, import date and entry
-  count; update, remove, toggle. Nothing is bundled; downloads happen on
+  count; update, remove, toggle. Downloads and imports run in the background,
+  queued, while you keep searching. Nothing is bundled; downloads happen on
   request.
 - 🎨 **Desktop.** Adaptive layout, light and dark theme or the system's,
   keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+D` star, `Ctrl+I` import,
