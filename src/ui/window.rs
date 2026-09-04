@@ -67,6 +67,7 @@ impl Window {
             .menu_model(&menu)
             .tooltip_text("Main menu")
             .build();
+        keep_menu_out_of_reserved_strip(&win, &menu_button);
         let header = adw::HeaderBar::builder().show_title(false).build();
         header.pack_end(&menu_button);
         let results = gtk::ListBox::builder()
@@ -412,4 +413,70 @@ fn result_row(entry: &Entry, langs: &[String]) -> adw::ActionRow {
         row.add_suffix(&tag);
     }
     row
+}
+
+/// Workaround for a Hyprland bug (0.56, still in master as of 2026-09). Hyprland keeps a window's
+/// popups out of the strip a top bar reserves, even when the window is fullscreen and covers the
+/// bar. GTK asks for the menu popover 40 px below the window's top edge; with a 52 px bar Hyprland
+/// answers by shrinking the popup by the overlap instead of sliding it down, and GTK shows the three
+/// menu items with a scrollbar. Asking GTK to move the open popover down makes Hyprland cut it even
+/// more, but a popover that *opens* lower is left alone. So on the first shrunk open the missing
+/// height becomes the popover's offset and the menu is reopened; the offset stays while the window
+/// is fullscreen and is dropped when it leaves fullscreen.
+fn keep_menu_out_of_reserved_strip(win: &adw::ApplicationWindow, menu_button: &gtk::MenuButton) {
+    let Some(popover) = menu_button.popover() else {
+        return;
+    };
+    let Some(scrolled) = find_scrolled_window(popover.upcast_ref()) else {
+        return;
+    };
+    scrolled.vadjustment().connect_changed(clone!(
+        #[weak]
+        win,
+        #[weak]
+        popover,
+        move |adj| {
+            let shortfall = (adj.upper() - adj.page_size()).ceil() as i32;
+            // Only a small cut of a fullscreen window's menu; a menu taller than the screen scrolls.
+            let bar_sized = (1..=128).contains(&shortfall);
+            if !bar_sized || !win.is_fullscreen() || !popover.is_mapped() || popover.offset().1 != 0 {
+                return;
+            }
+            // Reopening from inside GTK's size negotiation would fight it; do it right afterwards.
+            glib::idle_add_local_once(clone!(
+                #[weak]
+                popover,
+                move || {
+                    popover.set_offset(0, shortfall);
+                    popover.popdown();
+                    popover.popup();
+                }
+            ));
+        }
+    ));
+    win.connect_fullscreened_notify(clone!(
+        #[weak]
+        popover,
+        move |win| {
+            if !win.is_fullscreen() {
+                popover.set_offset(0, 0);
+            }
+        }
+    ));
+}
+
+/// The first `gtk::ScrolledWindow` below `widget`, depth first. GTK's menu popover keeps its items
+/// in one, which is not exposed through the API.
+pub fn find_scrolled_window(widget: &gtk::Widget) -> Option<gtk::ScrolledWindow> {
+    if let Some(found) = widget.downcast_ref::<gtk::ScrolledWindow>() {
+        return Some(found.clone());
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(found) = find_scrolled_window(&c) {
+            return Some(found);
+        }
+        child = c.next_sibling();
+    }
+    None
 }

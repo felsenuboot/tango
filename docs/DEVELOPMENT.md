@@ -58,6 +58,16 @@ desktop's palette. The Light and Dark settings beat that file by re-declaring
 libadwaita's named colours one priority above it, see `src/ui/theme.rs`. The
 `theme light|dark|system` autopilot step switches for one run without saving.
 
+## Hyprland and popups
+
+Hyprland (0.56, and master as of 2026-09) keeps a window's popups out of the
+strip a top bar reserves even when the window is fullscreen and covers the bar,
+and it shrinks the popup by the overlap instead of sliding it down. The primary
+menu then shows a scrollbar. `keep_menu_out_of_reserved_strip` in
+`src/ui/window.rs` works around it; reproduce with the autopilot steps
+`fullscreen; menu` and read the `autopilot menu:` line, which logs the
+popover's content height against its page size.
+
 ## Reading the code as a Rust newcomer
 
 Suggested order: `model.rs` (structs, `impl` blocks, `&str` vs `String`),

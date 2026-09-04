@@ -9,8 +9,10 @@
 //!   import <path>        import a JMdict file (plain or .gz) into the database, in the background
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
 //!   preferences | about  open that dialog
-//!   menu                 open the primary menu
+//!   menu                 open the primary menu (or close it, if open)
+//!   menustate            log the menu button's position and the popover's scroll metrics
 //!   resize <w> <h>       resize the main window
+//!   fullscreen | maximize | unfullscreen   change the window state
 //!   state                log the search text, result count and selected entry
 //!   quit                 exit the application
 
@@ -22,7 +24,7 @@ use std::time::Duration;
 use adw::prelude::*;
 use gtk::glib;
 
-use crate::ui::window::Window;
+use crate::ui::window::{Window, find_scrolled_window};
 
 pub fn install(app: &adw::Application, win: &Rc<Window>) {
     let Some(script) = std::env::var_os("TANGO_AUTOPILOT") else {
@@ -54,7 +56,24 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         "import" => win.import_file(PathBuf::from(arg)),
         "theme" => crate::ui::theme::apply(crate::ui::theme::Scheme::from_name(arg)),
         "preferences" => app.activate_action("preferences", None),
-        "menu" => win.menu_button.popup(),
+        "menu" => {
+            // Toggles, so a script can close and reopen the menu.
+            if win.menu_button.popover().is_some_and(|p| p.is_visible()) {
+                win.menu_button.popdown();
+                schedule(app, Rc::downgrade(&win), steps, delay);
+                return;
+            }
+            win.menu_button.popup();
+            let button = win.menu_button.clone();
+            glib::timeout_add_local_once(Duration::from_millis(400), move || log_menu_metrics(&button));
+        }
+        "menustate" => log_menu_metrics(&win.menu_button),
+        "fullscreen" => win.win.fullscreen(),
+        "maximize" => win.win.maximize(),
+        "unfullscreen" => {
+            win.win.unfullscreen();
+            win.win.unmaximize();
+        }
         "about" => app.activate_action("about", None),
         "resize" => {
             let mut it = arg.split_whitespace().map(|v| v.parse::<i32>().unwrap_or(800));
@@ -75,4 +94,33 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         other => log::warn!("autopilot: unknown step {other:?}"),
     }
     schedule(app, Rc::downgrade(&win), steps, delay);
+}
+
+/// Logs where the menu button is and whether its popover got a scrollable area (Hyprland shrinks
+/// it for fullscreen windows, see `keep_menu_out_of_reserved_strip` in ui/window.rs).
+fn log_menu_metrics(button: &gtk::MenuButton) {
+    let bounds = button
+        .root()
+        .and_then(|root| button.compute_bounds(root.upcast_ref::<gtk::Widget>()))
+        .map(|b| format!("{},{} {}x{}", b.x(), b.y(), b.width(), b.height()));
+    let Some(popover) = button.popover() else { return };
+    let Some(scrolled) = find_scrolled_window(popover.upcast_ref()) else {
+        log::info!("autopilot menu: button at {bounds:?}, no scrolled window in the popover");
+        return;
+    };
+    let adj = scrolled.vadjustment();
+    let child_natural = scrolled
+        .child()
+        .map(|c| c.measure(gtk::Orientation::Vertical, -1).1);
+    log::info!(
+        "autopilot menu: button at {bounds:?} visible={} popover {}x{} scrolled {}x{} content upper={} page={} child natural height={:?}",
+        popover.is_visible(),
+        popover.width(),
+        popover.height(),
+        scrolled.width(),
+        scrolled.height(),
+        adj.upper(),
+        adj.page_size(),
+        child_natural
+    );
 }

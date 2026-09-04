@@ -31,6 +31,10 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
 - Headless UI checks: `TANGO_AUTOPILOT` script + `TANGO_DB` + cage + grim,
   see `docs/DEVELOPMENT.md`. The real JMdict imports in ~13 s (release).
 - Stop headless runs by PID, never `pkill` by name (took Hyprland down once).
+- Felix's Hyprland uses the Lua config: `hyprctl dispatch movecursor 1 2` is a
+  syntax error there, so drive the app through `TANGO_AUTOPILOT` instead.
+- Hyprland shrinks popups of fullscreen windows by the top bar's reserved strip
+  (see `docs/DEVELOPMENT.md`); `window.rs` has the workaround.
 - Commit and push at sensible milestones; the repo stays private.
 - Session transcripts live in `docs/sessions/`.
 
