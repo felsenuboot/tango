@@ -18,6 +18,7 @@ use crate::dict::sources::{self, Source};
 use crate::model::Entry;
 use crate::search::{self, Hit};
 use crate::store::db::Database;
+use crate::store::export::TakobotoRow;
 use crate::store::import;
 use crate::store::user::{ListEntry, UserDb};
 
@@ -40,6 +41,8 @@ pub struct Window {
     /// Star = in Favourites; the menu button next to it picks any list.
     star: gtk::ToggleButton,
     add_to_list: gtk::MenuButton,
+    /// "Open in Takoboto" for JMdict entries.
+    open_in: gtk::MenuButton,
     results: gtk::ListBox,
     /// The "No results" page under the list; its description carries search hints.
     no_results: adw::StatusPage,
@@ -187,6 +190,15 @@ impl Window {
             .sensitive(false)
             .popover(&gtk::Popover::new())
             .build();
+        let open_menu = gio::Menu::new();
+        open_menu.append(Some("Takoboto"), Some("win.open-in::takoboto"));
+        let open_in = gtk::MenuButton::builder()
+            .icon_name("external-link-symbolic")
+            .menu_model(&open_menu)
+            .tooltip_text("Open in another dictionary")
+            .sensitive(false)
+            .build();
+        content_header.pack_end(&open_in);
         content_header.pack_end(&add_to_list);
         content_header.pack_end(&star);
         let content_view = adw::ToolbarView::builder().content(&stack).build();
@@ -223,6 +235,7 @@ impl Window {
             sidebar_stack,
             star,
             add_to_list,
+            open_in,
             results,
             no_results,
             stack,
@@ -297,6 +310,17 @@ impl Window {
             move |_, _| this.toggle_favourite()
         ));
         this.win.add_action(&star_action);
+        let open_in_action = gio::SimpleAction::new("open-in", Some(&String::static_variant_type()));
+        open_in_action.connect_activate(clone!(
+            #[weak]
+            this,
+            move |_, target| {
+                if let Some(site) = target.and_then(|t| t.get::<String>()) {
+                    this.open_in(&site);
+                }
+            }
+        ));
+        this.win.add_action(&open_in_action);
         if let Some(popover) = this.add_to_list.popover() {
             popover.connect_show(clone!(
                 #[weak]
@@ -401,6 +425,36 @@ impl Window {
         self.lists_changed();
     }
 
+    /// Shows the entry with that source and number, e.g. from a Takoboto link.
+    pub fn open_seq(&self, source: &str, seq: i64) {
+        match self.db.get(source, seq) {
+            Ok(Some(entry)) => {
+                self.show_entry(entry);
+                if self.split.is_collapsed() {
+                    self.split.set_show_content(true);
+                }
+            }
+            Ok(None) => self.toast(&format!("No entry {seq} in {source}")),
+            Err(e) => self.toast(&format!("Cannot open entry {seq}: {e}")),
+        }
+    }
+
+    /// The current entry on another site. Takoboto uses JMdict numbers, so only those link.
+    fn open_in(&self, site: &str) {
+        let Some(entry) = self.current.borrow().clone() else {
+            return;
+        };
+        let url = match site {
+            "takoboto" if entry.source == "jmdict" => format!("https://takoboto.jp/?w={}", entry.id),
+            _ => return,
+        };
+        gtk::UriLauncher::new(&url).launch(Some(&self.win), gio::Cancellable::NONE, |result| {
+            if let Err(e) = result {
+                log::warn!("cannot open {e}");
+            }
+        });
+    }
+
     /// Sets the star and the list button to the current entry.
     fn refresh_star(&self) {
         let current = self.current.borrow().clone();
@@ -412,6 +466,8 @@ impl Window {
         });
         self.star.set_sensitive(current.is_some());
         self.add_to_list.set_sensitive(current.is_some());
+        self.open_in
+            .set_sensitive(current.as_ref().is_some_and(|e| e.source == "jmdict"));
         self.star.set_active(starred);
         self.star.set_icon_name(if starred {
             "starred-symbolic"
@@ -509,6 +565,39 @@ impl Window {
             Ok(None) => self.toast(&format!("{} is not in the installed dictionaries", item.headword)),
             Err(e) => self.toast(&format!("Cannot open {}: {e}", item.headword)),
         }
+    }
+
+    /// Adds the rows of a Takoboto export to the lists they name, creating lists as needed.
+    /// Returns (added, rows).
+    pub fn add_takoboto_rows(&self, rows: &[TakobotoRow]) -> (usize, usize) {
+        let enabled = self.config.borrow().enabled_sources();
+        let mut added = 0;
+        for row in rows {
+            let list = match self.user.list_by_name(&row.list) {
+                Ok(Some(list)) => list,
+                _ => match self.user.create_list(&row.list) {
+                    Ok(list) => list,
+                    Err(e) => {
+                        log::warn!("cannot create list {:?}: {e:#}", row.list);
+                        continue;
+                    }
+                },
+            };
+            let found = self
+                .db
+                .lookup(std::slice::from_ref(&row.headword), &enabled, 10)
+                .unwrap_or_default();
+            let entry = found
+                .iter()
+                .find(|e| !row.reading.is_empty() && e.readings.contains(&row.reading))
+                .or(found.first());
+            if let Some(entry) = entry
+                && self.user.add(list.id, entry, &self.list_gloss(entry)).is_ok()
+            {
+                added += 1;
+            }
+        }
+        (added, rows.len())
     }
 
     /// Adds CSV rows (headword, reading, meaning, note, …; a header row is skipped) to a list by

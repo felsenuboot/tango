@@ -4,6 +4,7 @@
 
 pub mod csv;
 pub mod db;
+pub mod export;
 pub mod import;
 pub mod user;
 

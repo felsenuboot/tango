@@ -58,6 +58,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/store/db.rs` | SQLite schema (v3: `sources`, entries per source, FTS5 over glosses), insert, load, lookup, search |
 | `src/store/user.rs` | the user database: word lists, migrated forward, JSON backup |
 | `src/store/csv.rs` | just enough CSV for list import and export |
+| `src/store/export.rs` | list files in other tools' layouts (plain CSV, Takoboto) and reading Takoboto exports |
 | `src/store/import.rs` | the import, download and remove jobs the UI runs on a worker thread |
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
@@ -120,6 +121,17 @@ The index is rebuilt after each import and removal (11 s for the full JMdict,
 35 MB on disk). Measured on the 2026-09-04 JMdict: the previous LIKE scan took
 470 ms per query, FTS5 takes 2 to 14 ms.
 
+## Word list files
+
+`store::export` writes a list in a chosen layout and `store::csv` does the
+quoting. Plain CSV has a header (headword, reading, meaning, note, added).
+Takoboto's layout is what its Android app writes: comma-separated, UTF-8 with a
+byte-order mark, no header, list name in column 1, `word, , reading` in column
+4, meanings joined with `, , ` in column 5; columns 2 and 3 are undocumented
+and stay empty. Importing a CSV into a list detects a Takoboto export by that
+fourth column and puts its rows into the lists it names instead. Words are
+matched against the enabled dictionaries by headword, then reading.
+
 ## JMdict and its languages
 
 JMdict keeps every language in senses of its own: all the English senses
@@ -154,6 +166,10 @@ the `ring` crate (TLS for the downloads) and the link fails.
 | --- | --- |
 | `TANGO_DB` | use this SQLite file instead of `~/.local/share/tango/tango.sqlite` |
 | `TANGO_USER_DB` | the word lists file instead of `~/.local/share/tango/user.sqlite`; set it for every headless run so test runs never touch the real lists |
+
+`tango https://takoboto.jp/?w=1467640` (or `tango 1467640`) opens that JMdict
+entry, in the running instance if there is one; the desktop entry passes
+URLs through (`Exec=tango %U`).
 | `TANGO_AUTOPILOT` | script to run after start-up (see below) |
 | `TANGO_DEBUG=1` | debug logging (`RUST_LOG` works too) |
 | `XDG_CONFIG_HOME` etc. | point at a scratch directory for a fresh instance |

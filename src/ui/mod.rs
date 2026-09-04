@@ -97,6 +97,31 @@ pub fn activate(app: &adw::Application) {
     win.win.present();
 }
 
+/// Files or URIs from the command line: a Takoboto link (`https://takoboto.jp/?w=<seq>`) or a
+/// bare JMdict sequence number opens that entry.
+pub fn open(app: &adw::Application, files: &[gio::File], _hint: &str) {
+    activate(app);
+    for file in files {
+        let uri = file.uri().to_string();
+        match jmdict_seq_in(&uri) {
+            Some(seq) => with_window(|w| w.open_seq("jmdict", seq)),
+            None => log::warn!("nothing to open in {uri:?}"),
+        }
+    }
+}
+
+/// The JMdict number in a Takoboto URL (`?w=1467640`) or a bare number (GIO turns a bare
+/// argument into a file:// URI, so the last path segment is checked too).
+pub fn jmdict_seq_in(text: &str) -> Option<i64> {
+    let after_w = text.split(['?', '&']).find_map(|part| part.strip_prefix("w="));
+    let candidate = after_w.or_else(|| text.rsplit('/').next())?;
+    candidate
+        .trim_end_matches(|c: char| !c.is_ascii_digit())
+        .parse()
+        .ok()
+        .filter(|n| *n > 0)
+}
+
 /// 220412 → "220,412".
 pub fn thousands(n: i64) -> String {
     let digits = n.abs().to_string();
@@ -134,6 +159,19 @@ fn show_about() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn takoboto_links_and_numbers() {
+        use super::jmdict_seq_in;
+        assert_eq!(jmdict_seq_in("https://takoboto.jp/?w=1467640"), Some(1467640));
+        assert_eq!(
+            jmdict_seq_in("https://takoboto.jp/?lang=de&w=1467640#x"),
+            Some(1467640)
+        );
+        assert_eq!(jmdict_seq_in("file:///home/felix/1467640"), Some(1467640));
+        assert_eq!(jmdict_seq_in("https://takoboto.jp/"), None);
+        assert_eq!(jmdict_seq_in("file:///home/felix/notes.txt"), None);
+    }
+
     #[test]
     fn thousands_separators() {
         assert_eq!(super::thousands(0), "0");

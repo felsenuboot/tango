@@ -2,7 +2,7 @@
 Type=Application
 Name=Tango
 Comment=Japanese dictionary (JMdict, Wadoku)
-Exec=tango
+Exec=tango %U
 Icon=io.github.felsenuboot.Tango
 Terminal=false
 Categories=Education;Dictionary;GTK;

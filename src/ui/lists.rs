@@ -12,6 +12,7 @@ use gtk::glib::{self, clone};
 
 use super::window::Window;
 use crate::store::csv;
+use crate::store::export::{self, Layout};
 use crate::store::user::{Backup, List, ListEntry};
 
 pub struct ListsPage {
@@ -25,8 +26,6 @@ pub struct ListsPage {
     lists: RefCell<Vec<List>>,
     entries: RefCell<Vec<ListEntry>>,
 }
-
-const CSV_HEADER: [&str; 5] = ["headword", "reading", "meaning", "note", "added"];
 
 impl ListsPage {
     pub fn new() -> Rc<Self> {
@@ -91,7 +90,10 @@ impl ListsPage {
         let menu = gio::Menu::new();
         menu.append(Some("Rename…"), Some("lists.rename"));
         menu.append(Some("Move up"), Some("lists.move-up"));
-        menu.append(Some("Export as CSV…"), Some("lists.export-csv"));
+        let export = gio::Menu::new();
+        export.append(Some(Layout::Csv.label()), Some("lists.export::csv"));
+        export.append(Some(Layout::Takoboto.label()), Some("lists.export::takoboto"));
+        menu.append_submenu(Some("Export as…"), &export);
         menu.append(Some("Import CSV into this list…"), Some("lists.import-csv"));
         menu.append(Some("Delete list"), Some("lists.delete"));
         let menu_button = gtk::MenuButton::builder()
@@ -288,7 +290,18 @@ impl ListsPage {
         add("rename", Box::new(|this| this.rename()));
         add("move-up", Box::new(|this| this.move_up()));
         add("delete", Box::new(|this| this.delete()));
-        add("export-csv", Box::new(|this| this.export_csv()));
+        let export = gio::SimpleAction::new("export", Some(&String::static_variant_type()));
+        let weak = Rc::downgrade(self);
+        export.connect_activate(move |_, target| {
+            let layout = match target.and_then(|t| t.get::<String>()).as_deref() {
+                Some("takoboto") => Layout::Takoboto,
+                _ => Layout::Csv,
+            };
+            if let Some(this) = weak.upgrade() {
+                this.export(layout);
+            }
+        });
+        group.add_action(&export);
         add("import-csv", Box::new(|this| this.import_csv()));
         add("export-backup", Box::new(|this| this.export_backup()));
         add("import-backup", Box::new(|this| this.import_backup()));
@@ -368,32 +381,52 @@ impl ListsPage {
 
     // -- files ------------------------------------------------------------------------------
 
-    fn export_csv(&self) {
+    /// Writes the open list in `layout`; the dictionary entries are looked up for the layouts
+    /// that want more than the one gloss a list keeps.
+    fn export(&self, layout: Layout) {
         let (Some(win), Some(id)) = (self.window(), self.current.get()) else {
             return;
         };
         let name = self.title.text().to_string();
-        let entries = match win.user().entries(id) {
+        let items = match win.user().entries(id) {
             Ok(e) => e,
             Err(e) => return win.toast(&format!("Cannot read the list: {e}")),
         };
-        let mut text = csv::row(&CSV_HEADER, ',');
-        for e in &entries {
-            text.push_str(&csv::row(
-                &[&e.headword, &e.reading, &e.gloss, &e.note, &e.added],
-                ',',
-            ));
-        }
-        save_text(&win, &format!("{name}.csv"), text);
+        let entries: Vec<_> = items
+            .iter()
+            .map(|i| win.db().get(&i.source, i.seq).ok().flatten())
+            .collect();
+        let rows: Vec<export::Row> = items
+            .iter()
+            .zip(&entries)
+            .map(|(item, entry)| export::Row {
+                list: &name,
+                item,
+                entry: entry.as_ref(),
+            })
+            .collect();
+        save_text(&win, &layout.file_name(&name), export::render(layout, &rows));
     }
 
+    /// A plain CSV goes into the open list; a Takoboto export goes into the lists it names.
     fn import_csv(&self) {
         let (Some(win), Some(id)) = (self.window(), self.current.get()) else {
             return;
         };
         open_text(&win, "CSV", &["*.csv", "*.tsv", "*.txt"], move |win, text| {
-            let (added, rows) = win.add_rows_to_list(id, &csv::parse(&text));
-            win.toast(&format!("Added {added} of {rows} rows"));
+            let rows = csv::parse(&text);
+            match export::parse_takoboto(&rows) {
+                Some(takoboto) => {
+                    let (added, total) = win.add_takoboto_rows(&takoboto);
+                    win.toast(&format!(
+                        "Takoboto export: added {added} of {total} rows to their lists"
+                    ));
+                }
+                None => {
+                    let (added, total) = win.add_rows_to_list(id, &rows);
+                    win.toast(&format!("Added {added} of {total} rows"));
+                }
+            }
             win.lists_changed();
         });
     }

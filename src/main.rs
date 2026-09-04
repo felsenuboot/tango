@@ -37,7 +37,9 @@ fn main() -> glib::ExitCode {
         return glib::ExitCode::SUCCESS;
     }
 
-    let mut flags = gio::ApplicationFlags::empty();
+    // HANDLES_OPEN: `tango https://takoboto.jp/?w=1467640` (or a bare JMdict number) opens that
+    // entry, in the running instance if there is one.
+    let mut flags = gio::ApplicationFlags::HANDLES_OPEN;
     if std::env::var_os("TANGO_AUTOPILOT").is_some() {
         // Test instances must not join a running desktop instance.
         flags |= gio::ApplicationFlags::NON_UNIQUE;
@@ -48,6 +50,6 @@ fn main() -> glib::ExitCode {
         .build();
     app.connect_startup(ui::startup);
     app.connect_activate(ui::activate);
-    // `run()` parses the command line itself, so pass nothing and it uses std::env::args.
-    app.run_with_args::<&str>(&[])
+    app.connect_open(ui::open);
+    app.run()
 }
