@@ -13,6 +13,9 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   stumble; `docs/DEVELOPMENT.md` has the reading order.
 - **JMdict comes from `https://www.edrdg.org/pub/Nihongo/JMdict.gz`.** The
   `ftp.edrdg.org` host has a broken TLS certificate. Nothing is bundled.
+- **No Flatpak for Felix, no Flathub ever.** Felix runs Arch and wants a PKGBUILD;
+  Flathub is against its terms for this project. A Flatpak manifest is at most
+  a low-priority option for other distros.
 - **JMdict ships German/Dutch/French glosses as separate senses.** Merging
   them per meaning is the first roadmap item.
 
@@ -29,4 +32,6 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
 ## Roadmap
 
 Wadoku (German, pitch accent), kanji view (KANJIDIC, KanjiVG, radicals),
-Tatoeba examples, romaji input and deinflection, FTS5, Flatpak.
+Tatoeba examples, romaji input and deinflection, FTS5, Arch PKGBUILD.
+Integrations: Jisho feature parity, WaniKani, MaruMori, Kitsun.io, Takoboto.
+Tracked as GitHub issues #2–#15.

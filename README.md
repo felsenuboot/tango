@@ -32,7 +32,10 @@ Offline, with English and German glosses side by side.
 - Example sentences from Tatoeba
 - Romaji input, deinflection of verbs and adjectives
 - FTS5 index for faster gloss search
-- Flatpak
+- Arch package (PKGBUILD) instead of `install.sh`
+
+Everything above plus the WaniKani, MaruMori, Kitsun.io and Takoboto
+integrations is tracked in the [issues](https://github.com/felsenuboot/tango/issues).
 
 ## Install
 
