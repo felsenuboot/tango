@@ -115,13 +115,22 @@ fn accounts_page(win: &Rc<Window>) -> adw::PreferencesPage {
     group.add(&list);
     page.add(&group);
     rebuild_wanikani(&list, win);
-    // The rows follow the job queue: buttons off and a status line while a job runs.
+    // The rows follow the WaniKani job: buttons off and a status line while it runs. Only a
+    // change of that job's state rebuilds them; rebuilding on every progress message of any job
+    // (an import running in the background, say) would recreate the token entry under the
+    // user's cursor and drop its focus.
     let weak_list = list.downgrade();
     let weak_win = Rc::downgrade(win);
+    let last = std::cell::RefCell::new(win.jobs().state("wanikani"));
     win.jobs()
         .connect(move || match (weak_list.upgrade(), weak_win.upgrade()) {
             (Some(list), Some(win)) => {
-                rebuild_wanikani(&list, &win);
+                let now = win.jobs().state("wanikani");
+                let changed = std::mem::discriminant(&now) != std::mem::discriminant(&*last.borrow());
+                *last.borrow_mut() = now;
+                if changed {
+                    rebuild_wanikani(&list, &win);
+                }
                 true
             }
             _ => false,
