@@ -45,8 +45,9 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
 - Hyprland shrinks popups of fullscreen windows by the top bar's reserved strip
   (see `docs/DEVELOPMENT.md`); `window.rs` has the workaround.
 - One issue → one branch (`<issue>-<slug>`) → one pull request (`Closes #N`,
-  milestone set) → squash-merge with the subject `area: what (#N)`. Master
-  has a ruleset: no direct pushes, CI must be green. Milestone done → bump
+  milestone set) → squash-merge with the subject `area: what (#N)`. No direct
+  pushes to master, CI must be green (a convention; GitHub cannot enforce it on
+  a private free repo). Milestone done → bump
   `Cargo.toml`, tag `vX.Y.0`, GitHub release. Details: `docs/DEVELOPMENT.md`.
 - Session transcripts live in `docs/sessions/`.
 

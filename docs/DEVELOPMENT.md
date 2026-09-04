@@ -10,7 +10,9 @@ cargo run                                    # dev build against the real config
 ## Working on an issue
 
 Master is always releasable; nothing lands on it without a pull request and a
-green CI (a repository ruleset enforces that, tags are free).
+green CI. That is a convention, not a rule GitHub enforces: rulesets and
+branch protection need GitHub Pro on a private repository. Tags are pushed
+directly.
 
 1. Every change starts from an issue. No issue yet? Open one, even a one-liner,
    and put it in a milestone.
