@@ -55,6 +55,18 @@ pub fn startup(app: &adw::Application) {
     let css = gtk::CssProvider::new();
     css.load_from_string(CSS);
     gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    // The user's own rules, on top of the app's (issue #58): ~/.config/tango/style.css.
+    let custom = crate::config::config_dir().join("style.css");
+    if custom.exists() {
+        let provider = gtk::CssProvider::new();
+        provider.load_from_path(&custom);
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
+        );
+        log::info!("loaded custom style from {}", custom.display());
+    }
     // Icons from the checkout, so `cargo run` shows the app icon without installing it.
     gtk::IconTheme::for_display(&display).add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
 

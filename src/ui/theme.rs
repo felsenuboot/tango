@@ -1,4 +1,7 @@
-//! Colour scheme: follow the system, or force light or dark.
+//! Colour scheme: follow the system, or force light or dark; and the themes on top of those
+//! (issue #58): WaniKani's blue or pink, and a few Sanzo Wada combinations, each a base scheme
+//! plus a block of named-colour overrides from `themes.css`. A custom `style.css` in the config
+//! directory is loaded by `ui::startup` for anything beyond that.
 //!
 //! Forcing a scheme takes two steps. `adw::StyleManager` switches libadwaita's stylesheet, but
 //! that alone is not enough (issue #1): GTK loads the user's own `~/.config/gtk-4.0/gtk.css` at
@@ -21,10 +24,33 @@ pub enum Scheme {
     System,
     Light,
     Dark,
+    /// WaniKani's blue as the accent, on whatever base the desktop gives.
+    WaniKani,
+    WaniKaniDark,
+    WaniKaniLight,
+    /// Kanji pink surfaces and accents on a light base.
+    WaniKaniPink,
+    /// Sanzo Wada, "A Dictionary of Color Combinations", by combination number.
+    Wada295,
+    Wada325,
+    Wada344,
+    Wada276,
 }
 
 impl Scheme {
-    pub const ALL: [Scheme; 3] = [Scheme::System, Scheme::Light, Scheme::Dark];
+    pub const ALL: [Scheme; 11] = [
+        Scheme::System,
+        Scheme::Light,
+        Scheme::Dark,
+        Scheme::WaniKani,
+        Scheme::WaniKaniDark,
+        Scheme::WaniKaniLight,
+        Scheme::WaniKaniPink,
+        Scheme::Wada295,
+        Scheme::Wada325,
+        Scheme::Wada344,
+        Scheme::Wada276,
+    ];
 
     /// The name stored in the config file.
     pub fn name(self) -> &'static str {
@@ -32,7 +58,37 @@ impl Scheme {
             Scheme::System => "system",
             Scheme::Light => "light",
             Scheme::Dark => "dark",
+            Scheme::WaniKani => "wanikani",
+            Scheme::WaniKaniDark => "wanikani-dark",
+            Scheme::WaniKaniLight => "wanikani-light",
+            Scheme::WaniKaniPink => "wanikani-pink",
+            Scheme::Wada295 => "wada-295",
+            Scheme::Wada325 => "wada-325",
+            Scheme::Wada344 => "wada-344",
+            Scheme::Wada276 => "wada-276",
         }
+    }
+
+    /// The light, dark or system scheme a theme builds on.
+    pub fn base(self) -> Scheme {
+        match self {
+            Scheme::WaniKani => Scheme::System,
+            Scheme::WaniKaniDark | Scheme::Wada295 | Scheme::Wada325 | Scheme::Wada344 => Scheme::Dark,
+            Scheme::WaniKaniLight | Scheme::WaniKaniPink | Scheme::Wada276 => Scheme::Light,
+            base => base,
+        }
+    }
+
+    /// The theme's own named colours from `themes.css`, empty for the plain schemes.
+    fn extra_css(self) -> String {
+        const THEMES: &str = include_str!("themes.css");
+        let marker = format!("/* == {} */", self.name());
+        let Some(start) = THEMES.find(&marker) else {
+            return String::new();
+        };
+        let rest = &THEMES[start + marker.len()..];
+        let end = rest.find("/* == ").unwrap_or(rest.len());
+        rest[..end].to_string()
     }
 
     /// Unknown names fall back to following the system.
@@ -49,14 +105,22 @@ impl Scheme {
             Scheme::System => "Follow system",
             Scheme::Light => "Light",
             Scheme::Dark => "Dark",
+            Scheme::WaniKani => "WaniKani",
+            Scheme::WaniKaniDark => "WaniKani Dark",
+            Scheme::WaniKaniLight => "WaniKani Light",
+            Scheme::WaniKaniPink => "WaniKani Pink",
+            Scheme::Wada295 => "Wada 295 · Dull Violet Black",
+            Scheme::Wada325 => "Wada 325 · Deep Slate Green",
+            Scheme::Wada344 => "Wada 344 · Lyons Blue",
+            Scheme::Wada276 => "Wada 276 · Seashell Pink",
         }
     }
 
     fn adw(self) -> adw::ColorScheme {
-        match self {
-            Scheme::System => adw::ColorScheme::Default,
+        match self.base() {
             Scheme::Light => adw::ColorScheme::ForceLight,
             Scheme::Dark => adw::ColorScheme::ForceDark,
+            _ => adw::ColorScheme::Default,
         }
     }
 }
@@ -78,25 +142,39 @@ pub fn apply(scheme: Scheme) {
             gtk::style_context_remove_provider_for_display(&display, &old);
         }
         // High contrast has its own named colours in the stylesheet; leave them alone.
-        if scheme == Scheme::System || manager.is_high_contrast() {
+        if manager.is_high_contrast() {
             return;
         }
-        match palette_css(scheme) {
-            Some(css) => {
-                let provider = gtk::CssProvider::new();
-                provider.load_from_string(&css);
-                gtk::style_context_add_provider_for_display(
-                    &display,
-                    &provider,
-                    gtk::STYLE_PROVIDER_PRIORITY_USER + 1,
+        // A forced base re-declares libadwaita's palette; a theme adds its colours after it,
+        // so its lines win. Following the system with a theme keeps the desktop's palette and
+        // changes only what the theme names.
+        let base = scheme.base();
+        let palette = if base == Scheme::System {
+            Some(String::new())
+        } else {
+            palette_css(base)
+        };
+        let css = match palette {
+            Some(palette) => format!("{palette}\n{}", scheme.extra_css()),
+            None => {
+                log::warn!(
+                    "libadwaita stylesheet not found in resources; the desktop's GTK colours may override the {} scheme",
+                    scheme.name()
                 );
-                *slot.borrow_mut() = Some(provider);
+                scheme.extra_css()
             }
-            None => log::warn!(
-                "libadwaita stylesheet not found in resources; the desktop's GTK colours may override the {} scheme",
-                scheme.name()
-            ),
+        };
+        if css.trim().is_empty() {
+            return;
         }
+        let provider = gtk::CssProvider::new();
+        provider.load_from_string(&css);
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_USER + 1,
+        );
+        *slot.borrow_mut() = Some(provider);
     });
 }
 
@@ -209,6 +287,25 @@ mod tests {
             assert_eq!(Scheme::from_name(s.name()), s);
         }
         assert_eq!(Scheme::from_name("purple"), Scheme::System);
+    }
+
+    #[test]
+    fn every_theme_has_its_css_and_a_base() {
+        for s in Scheme::ALL {
+            let plain = matches!(s, Scheme::System | Scheme::Light | Scheme::Dark);
+            assert_eq!(s.extra_css().is_empty(), plain, "{}", s.name());
+            assert!(matches!(s.base(), Scheme::System | Scheme::Light | Scheme::Dark));
+            assert!(
+                !s.extra_css().contains("/* =="),
+                "{} bleeds into the next",
+                s.name()
+            );
+        }
+        assert!(
+            Scheme::WaniKaniPink
+                .extra_css()
+                .contains("accent_bg_color #ff00aa")
+        );
     }
 
     #[test]

@@ -38,9 +38,10 @@ fn general_page(win: &Rc<Window>) -> adw::PreferencesPage {
     let look = adw::PreferencesGroup::builder().title("Appearance").build();
     page.add(&look);
     let scheme = adw::ComboRow::builder()
-        .title("Colour scheme")
+        .title("Theme")
         .subtitle(
-            "Light and Dark use libadwaita's own colours; Follow system also takes the desktop's GTK theme.",
+            "Follow system takes the desktop's GTK theme; the others bring their own colours. \
+             A style.css in the config directory is loaded on top of any of them.",
         )
         .model(&gtk::StringList::new(&Scheme::ALL.map(Scheme::label)))
         .build();

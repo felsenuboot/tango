@@ -1,0 +1,139 @@
+/* Themes on top of the light or dark base (issue #58). Each section starts with its config
+   name; `theme::extra_css` picks one. Named colours as libadwaita defines them. */
+/* == wanikani */
+/* WaniKani: the site's blue as accent on whatever base the desktop gives */
+@define-color accent_bg_color #00aaff;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #0093dd;
+
+/* == wanikani-dark */
+/* WaniKani Dark: the site's blue on libadwaita's dark palette */
+@define-color accent_bg_color #00aaff;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #4fc3ff;
+
+/* == wanikani-light */
+/* WaniKani Light: the site's blue on libadwaita's light palette */
+@define-color accent_bg_color #00aaff;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #0079b8;
+
+/* == wanikani-pink */
+/* WaniKani Pink: kanji pink everywhere */
+@define-color window_bg_color #ffb8e7;
+@define-color window_fg_color #2b0a1f;
+@define-color view_bg_color #ffffff;
+@define-color view_fg_color #2b0a1f;
+@define-color headerbar_bg_color #ff59c8;
+@define-color headerbar_fg_color #2b0a1f;
+@define-color headerbar_backdrop_color #ff80d4;
+@define-color sidebar_bg_color #ff99dd;
+@define-color sidebar_fg_color #2b0a1f;
+@define-color sidebar_backdrop_color #ff80d4;
+@define-color secondary_sidebar_bg_color #ff99dd;
+@define-color secondary_sidebar_backdrop_color #ff80d4;
+@define-color card_bg_color #ffffff;
+@define-color card_fg_color #2b0a1f;
+@define-color popover_bg_color #ffffff;
+@define-color popover_fg_color #2b0a1f;
+@define-color dialog_bg_color #ffffff;
+@define-color dialog_fg_color #2b0a1f;
+@define-color accent_bg_color #ff00aa;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #c4007f;
+
+/* == wada-295 */
+/* Sanzo Wada 295: Dull Violet Black, Blue, Cream Yellow */
+@define-color window_bg_color #1e0e3f;
+@define-color window_fg_color #f4efff;
+@define-color view_bg_color #2c1c4b;
+@define-color view_fg_color #f4efff;
+@define-color headerbar_bg_color #1a0c36;
+@define-color headerbar_fg_color #f4efff;
+@define-color headerbar_backdrop_color #160a2f;
+@define-color sidebar_bg_color #251545;
+@define-color sidebar_fg_color #f4efff;
+@define-color sidebar_backdrop_color #160a2f;
+@define-color secondary_sidebar_bg_color #251545;
+@define-color secondary_sidebar_backdrop_color #160a2f;
+@define-color card_bg_color #30214e;
+@define-color card_fg_color #f4efff;
+@define-color popover_bg_color #342652;
+@define-color popover_fg_color #f4efff;
+@define-color dialog_bg_color #342652;
+@define-color dialog_fg_color #f4efff;
+@define-color accent_bg_color #006eb8;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #fdbf68;
+
+/* == wada-325 */
+/* Sanzo Wada 325: Deep Slate Green, Eugenia Red, Yellow Ocher */
+@define-color window_bg_color #112f2c;
+@define-color window_fg_color #eef5f3;
+@define-color view_bg_color #1f3b39;
+@define-color view_fg_color #eef5f3;
+@define-color headerbar_bg_color #0e2825;
+@define-color headerbar_fg_color #eef5f3;
+@define-color headerbar_backdrop_color #0d2321;
+@define-color sidebar_bg_color #183532;
+@define-color sidebar_fg_color #eef5f3;
+@define-color sidebar_backdrop_color #0d2321;
+@define-color secondary_sidebar_bg_color #183532;
+@define-color secondary_sidebar_backdrop_color #0d2321;
+@define-color card_bg_color #24403d;
+@define-color card_fg_color #eef5f3;
+@define-color popover_bg_color #294441;
+@define-color popover_fg_color #eef5f3;
+@define-color dialog_bg_color #294441;
+@define-color dialog_fg_color #eef5f3;
+@define-color accent_bg_color #da525d;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #e2b540;
+
+/* == wada-344 */
+/* Sanzo Wada 344: Black, Deep Lyons Blue, Cinnamon Buff, Aconite Violet */
+@define-color window_bg_color #111314;
+@define-color window_fg_color #f2f2f2;
+@define-color view_bg_color #1f2122;
+@define-color view_fg_color #f2f2f2;
+@define-color headerbar_bg_color #0e1011;
+@define-color headerbar_fg_color #f2f2f2;
+@define-color headerbar_backdrop_color #0d0e0f;
+@define-color sidebar_bg_color #181a1b;
+@define-color sidebar_fg_color #f2f2f2;
+@define-color sidebar_backdrop_color #0d0e0f;
+@define-color secondary_sidebar_bg_color #181a1b;
+@define-color secondary_sidebar_backdrop_color #0d0e0f;
+@define-color card_bg_color #242627;
+@define-color card_fg_color #f2f2f2;
+@define-color popover_bg_color #292b2c;
+@define-color popover_fg_color #f2f2f2;
+@define-color dialog_bg_color #292b2c;
+@define-color dialog_fg_color #f2f2f2;
+@define-color accent_bg_color #1c4286;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #fdc57e;
+
+/* == wada-276 */
+/* Sanzo Wada 276: Seashell Pink, Eosine Pink, Yellow Green */
+@define-color window_bg_color #fef3ed;
+@define-color window_fg_color #2a1a14;
+@define-color view_bg_color #ffffff;
+@define-color view_fg_color #2a1a14;
+@define-color headerbar_bg_color #fee3d4;
+@define-color headerbar_fg_color #2a1a14;
+@define-color headerbar_backdrop_color #feeade;
+@define-color sidebar_bg_color #feeee5;
+@define-color sidebar_fg_color #2a1a14;
+@define-color sidebar_backdrop_color #feeade;
+@define-color secondary_sidebar_bg_color #feeee5;
+@define-color secondary_sidebar_backdrop_color #feeade;
+@define-color card_bg_color #ffffff;
+@define-color card_fg_color #2a1a14;
+@define-color popover_bg_color #ffffff;
+@define-color popover_fg_color #2a1a14;
+@define-color dialog_bg_color #ffffff;
+@define-color dialog_fg_color #2a1a14;
+@define-color accent_bg_color #f37f94;
+@define-color accent_fg_color #ffffff;
+@define-color accent_color #b5384f;

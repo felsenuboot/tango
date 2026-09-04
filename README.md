@@ -60,7 +60,10 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   what you have learned, and the Lists page has a WaniKani list of every
   synced word and kanji, filterable by kind, level and stage, exportable
   like any list.
-- 🎨 **Desktop.** Adaptive layout, light and dark theme or the system's,
+- 🎨 **Desktop.** Adaptive layout; Follow system, Light and Dark, plus
+  themes: WaniKani (blue accent on your base), WaniKani Dark, Light and
+  Pink, and four Sanzo Wada colour combinations; your own
+  `~/.config/tango/style.css` loads on top of any of them,
   keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+D` star, `Ctrl+I` import,
   `Ctrl+,` preferences).
 
@@ -164,6 +167,11 @@ desktop. Tick and delete when done; a bug goes into a new issue.
   button) and アルバイト ("from German: Arbeit").
 - [ ] **#18 names.** Search 田中: the surname rows come after the word;
   `#names さとう` lists names only.
+- [ ] **#58 themes.** Preferences → General → Theme: every entry of the list
+  is legible on the entry page, the sidebar rows, the Dictionaries page and
+  the kanji diagram; WaniKani Pink and Wada 276 are light, the other Wada
+  ones dark; a `~/.config/tango/style.css` with `.tango-headword { color: red; }`
+  takes effect after a restart.
 - [ ] **#11 WaniKani.** Preferences → Accounts: paste a read-only token and
   Connect; the row shows your username and level, the first sync runs in the
   background (about thirty requests, half a minute), then 食べる shows a
