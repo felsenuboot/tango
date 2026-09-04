@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE JMdict [
+<!ELEMENT JMdict (entry*)>
+<!ENTITY n "noun (common) (futsuumeishi)">
+<!ENTITY v5k "Godan verb with 'ku' ending">
+<!ENTITY vi "intransitive verb">
+<!ENTITY uk "word usually written using kana alone">
+<!ENTITY comp "computing">
+<!ENTITY adj-i "adjective (keiyoushi)">
+]>
+<JMdict>
+<entry>
+<ent_seq>1467640</ent_seq>
+<k_ele><keb>猫</keb><ke_pri>ichi1</ke_pri><ke_pri>news1</ke_pri></k_ele>
+<r_ele><reb>ねこ</reb><re_pri>ichi1</re_pri></r_ele>
+<r_ele><reb>ネコ</reb></r_ele>
+<sense><pos>&n;</pos><gloss>cat (esp. the domestic cat, Felis catus)</gloss><gloss xml:lang="ger">Katze</gloss><gloss xml:lang="ger">Hauskatze</gloss></sense>
+<sense><pos>&n;</pos><misc>&uk;</misc><gloss>shamisen</gloss><gloss xml:lang="ger">Shamisen</gloss></sense>
+</entry>
+<entry>
+<ent_seq>1000225</ent_seq>
+<k_ele><keb>明白</keb><ke_pri>news1</ke_pri></k_ele>
+<r_ele><reb>めいはく</reb></r_ele>
+<sense><pos>&adj-i;</pos><gloss>obvious</gloss><gloss>clear</gloss><gloss>plain</gloss><gloss xml:lang="ger">offensichtlich</gloss><gloss xml:lang="ger">klar</gloss></sense>
+</entry>
+<entry>
+<ent_seq>1236120</ent_seq>
+<k_ele><keb>書く</keb><ke_pri>ichi1</ke_pri></k_ele>
+<r_ele><reb>かく</reb><re_pri>ichi1</re_pri></r_ele>
+<sense><pos>&v5k;</pos><gloss>to write</gloss><gloss>to compose</gloss><gloss xml:lang="ger">schreiben</gloss></sense>
+<sense><pos>&v5k;</pos><gloss>to draw</gloss><gloss>to paint</gloss><gloss xml:lang="ger">zeichnen</gloss><gloss xml:lang="ger">malen</gloss></sense>
+</entry>
+<entry>
+<ent_seq>2000001</ent_seq>
+<r_ele><reb>ねこじゃらし</reb></r_ele>
+<sense><pos>&n;</pos><misc>&uk;</misc><gloss>green foxtail (Setaria viridis)</gloss><gloss xml:lang="ger">Grüne Borstenhirse</gloss></sense>
+</entry>
+<entry>
+<ent_seq>2000002</ent_seq>
+<k_ele><keb>猫背</keb></k_ele>
+<r_ele><reb>ねこぜ</reb></r_ele>
+<sense><pos>&n;</pos><gloss>bent back</gloss><gloss>hunchback</gloss><gloss>stoop</gloss><gloss xml:lang="ger">Buckel</gloss><gloss xml:lang="ger">runder Rücken</gloss></sense>
+</entry>
+<entry>
+<ent_seq>2000003</ent_seq>
+<k_ele><keb>猫</keb></k_ele>
+<r_ele><reb>ねこま</reb></r_ele>
+<sense><pos>&n;</pos><field>&comp;</field><gloss>cat (archaic reading, for the test) &amp; more</gloss></sense>
+</entry>
+</JMdict>

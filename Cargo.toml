@@ -1,0 +1,32 @@
+[package]
+name = "tango"
+version = "0.1.0"
+edition = "2024"
+description = "単語 – a Japanese dictionary (JMdict, Wadoku) for GNOME, in GTK4 + libadwaita"
+license = "MIT"
+repository = "https://github.com/felsenuboot/tango"
+rust-version = "1.85"
+
+[dependencies]
+# GTK 4 and libadwaita bindings. The `v…` features gate APIs by library version; keep
+# them at what the oldest platform we build on has (Ubuntu 24.04: GTK 4.14, libadwaita 1.5).
+gtk = { package = "gtk4", version = "0.11", features = ["v4_12"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_5"] }
+# Storage and dictionary sources
+rusqlite = "0.40"
+quick-xml = "0.42"
+flate2 = "1"
+ureq = "3"
+# Config file
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Plumbing
+async-channel = "2"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

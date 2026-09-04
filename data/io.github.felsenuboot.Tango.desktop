@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Tango
+Comment=Japanese dictionary (JMdict, Wadoku)
+Exec=tango
+Icon=io.github.felsenuboot.Tango
+Terminal=false
+Categories=Education;Dictionary;GTK;
+Keywords=japanese;dictionary;jisho;wadoku;jmdict;kanji;単語;辞書;
+StartupNotify=true
