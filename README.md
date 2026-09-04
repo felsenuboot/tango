@@ -32,6 +32,9 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
 - 🏷️ **Names.** JMnedict, the EDRDG's names file, as a dictionary of its
   own: exact matches show up after the words, `#names` searches nothing
   else.
+- 🎓 **JLPT levels.** An opt-in download of Jonathan Waller's unofficial N5–N1
+  lists: a level chip on the entry and in the results, `#jlpt-n5` … `#jlpt-n1`
+  as filters or on their own to list a level.
 - 💬 **Example sentences.** Tatoeba sentences under every entry that has
   them, English and German side by side, the word in bold; `#sentences` in the
   search box searches the sentences themselves, and a sentence page names
@@ -83,8 +86,8 @@ with the desktop entry and icons. Or just `cargo run` from the checkout.
 There is no Flatpak, and Flathub is not planned.
 
 On first start, click **Download JMdict** (about 22 MB). Wadoku, KANJIDIC2,
-KanjiVG, the radical index, the JMnedict names and the Tatoeba sentences are
-one click each on the Dictionaries page in Preferences.
+KanjiVG, the radical index, the JMnedict names, the JLPT lists and the
+Tatoeba sentences are one click each on the Dictionaries page in Preferences.
 
 ## Dictionaries and licences
 
@@ -102,13 +105,17 @@ one click each on the Dictionaries page in Preferences.
   Creative Commons Attribution-ShareAlike 3.0.
 - [Tatoeba](https://tatoeba.org/) sentences and the Tanaka corpus index are
   released under Creative Commons Attribution 2.0 France.
+- The JLPT lists are [Jonathan Waller's](http://www.tanos.co.uk/jlpt/)
+  (CC BY), with JMdict numbers added by Stephen Kraus in
+  [yomitan-jlpt-vocab](https://github.com/stephenmk/yomitan-jlpt-vocab)
+  (CC BY-SA 4.0). They are unofficial; there are no official lists.
 
 Everything is downloaded on request from the Dictionaries page; nothing is
 bundled with the app.
 
 ## Roadmap
 
-JLPT levels, external links, and the WaniKani and MaruMori integrations. Tracked as
+External links, and the WaniKani and MaruMori integrations. Tracked as
 [milestones](https://github.com/felsenuboot/tango/milestones); the order and
 the reasoning are in [docs/ROADMAP.md](docs/ROADMAP.md).
 

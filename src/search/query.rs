@@ -16,6 +16,8 @@ pub enum Tag {
     Sentences,
     /// Not a filter: search the JMnedict names instead of the words.
     Names,
+    /// `#jlpt-n5` … `#jlpt-n1`: words on that JLPT list.
+    Jlpt(u8),
 }
 
 /// Tag names as typed, without the `#`.
@@ -39,6 +41,11 @@ pub const TAGS: &[(&str, Tag)] = &[
     ("sentence", Tag::Sentences),
     ("names", Tag::Names),
     ("name", Tag::Names),
+    ("jlpt-n5", Tag::Jlpt(5)),
+    ("jlpt-n4", Tag::Jlpt(4)),
+    ("jlpt-n3", Tag::Jlpt(3)),
+    ("jlpt-n2", Tag::Jlpt(2)),
+    ("jlpt-n1", Tag::Jlpt(1)),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -94,13 +101,16 @@ mod tests {
         assert_eq!(q.text, "食べ");
         assert_eq!(q.tags, [Tag::Common, Tag::Pos("verb")]);
         assert!(q.unknown_tags.is_empty());
-        let q = parse("\"domestic cat\" #jlpt-n5");
+        let q = parse("\"domestic cat\" #bogus");
         assert_eq!(q.text, "domestic cat");
         assert!(q.exact);
-        assert_eq!(q.unknown_tags, ["jlpt-n5"]);
+        assert_eq!(q.unknown_tags, ["bogus"]);
         let q = parse("ne?o*");
         assert!(q.wildcard && !q.exact);
         assert_eq!(parse("#").text, "#");
+        let q = parse("#jlpt-n5");
+        assert_eq!(q.tags, [Tag::Jlpt(5)]);
+        assert_eq!(q.text, "");
         let q = parse("#names 佐藤");
         assert!(q.names);
         assert_eq!(q.text, "佐藤");

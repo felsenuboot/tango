@@ -39,8 +39,9 @@ ranking. #7, #16 and #8 are three steps of one piece of work.
 - #6 Tatoeba sentences: examples under the entry, `#sentences` search, a sentence page
 - #17 remaining JMdict entry details (chips, notes, origins, references)
 - #18 JMnedict as a names source: exact matches and `#names` only
-- #19 JLPT lists (opt-in, licence unclear), #20 external links and the
-  optional online fallback
+- #19 JLPT lists: opt-in download of Waller's lists with JMdict numbers
+  (stephenmk/yomitan-jlpt-vocab, CC BY-SA), chips and `#jlpt-nX`
+- #20 external links and the optional online fallback
 
 ### 0.6 Accounts
 - #11 WaniKani and #12 MaruMori as two providers of one learned-items model,

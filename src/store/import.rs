@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::bail;
 
 use crate::dict::sources::{self, Source};
-use crate::dict::{jmdict, kanjidic, kanjivg, radkfile, tatoeba, wadoku};
+use crate::dict::{jlpt, jmdict, kanjidic, kanjivg, radkfile, tatoeba, wadoku};
 use crate::model::SentenceWord;
 use crate::store::db::Database;
 use crate::store::now_iso8601;
@@ -27,6 +27,7 @@ pub fn import_file(db: &Database, source: &Source, path: &Path, report: Report) 
         "kanjivg" => import_kanjivg(db, source, path, report),
         "radkfile" => import_radkfile(db, source, path, report),
         "tatoeba" => import_tatoeba(db, source, path, report),
+        "jlpt" => import_jlpt(db, source, path, report),
         other => bail!("no reader for the {other} source"),
     };
     if result.is_err()
@@ -153,6 +154,34 @@ fn import_radkfile(db: &Database, source: &Source, path: &Path, report: Report) 
     db.finish_source(source.id, None, &now_iso8601(), count as i64)?;
     report(format!("Imported {count} radicals."), Some(1.0));
     Ok(count)
+}
+
+/// JLPT: `path` is any one of the level files, the others are looked up next to it; a missing
+/// level is skipped. The count is the number of words with a level.
+fn import_jlpt(db: &Database, source: &Source, path: &Path, report: Report) -> anyhow::Result<usize> {
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let version = std::fs::read_to_string(dir.join(source.filename).with_extension("version"))
+        .ok()
+        .map(|v| v.trim().to_string());
+    report(format!("Reading {}…", source.name), None);
+    db.begin_source(source.id, &now_iso8601())?;
+    let mut rows: Vec<(i64, u8)> = Vec::new();
+    for (name, level) in jlpt::FILES {
+        let file = dir.join(name);
+        match std::fs::read_to_string(&file) {
+            Ok(text) => rows.extend(jlpt::parse(&text).into_iter().map(|seq| (seq, level))),
+            Err(e) => log::warn!("no {name} next to {}: skipping N{level} ({e})", path.display()),
+        }
+    }
+    db.insert_jlpt(&rows)?;
+    let count: i64 = rows
+        .iter()
+        .map(|(s, _)| *s)
+        .collect::<std::collections::HashSet<_>>()
+        .len() as i64;
+    db.finish_source(source.id, version.as_deref(), &now_iso8601(), count)?;
+    report(format!("Imported JLPT levels for {count} words."), Some(1.0));
+    Ok(count as usize)
 }
 
 /// Tatoeba: `path` is any one of the export files, the others are looked up next to it. A
@@ -283,7 +312,7 @@ pub fn download_and_import(
         let _ = std::fs::write(dest.with_extension("version"), version);
     }
     // Exports rebuilt under a fixed name are versioned by their download date.
-    if source.id == "tatoeba" {
+    if matches!(source.id, "tatoeba" | "jlpt") {
         let _ = std::fs::write(dest.with_extension("version"), &now_iso8601()[..10]);
     }
     let files = std::iter::once((url.as_str(), dest.clone()))
@@ -442,6 +471,40 @@ mod tests {
                 .as_deref(),
             Some("2026-09-04")
         );
+    }
+
+    #[test]
+    fn jlpt_levels_attach_to_jmdict_entries() {
+        let db = Database::open_in_memory().unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        import_file(
+            &db,
+            &sources::JMDICT,
+            &fixtures.join("jmdict-sample.xml"),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        let n = import_file(
+            &db,
+            &sources::JLPT,
+            &fixtures.join("jlpt/jlpt-n5.csv"),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(n, 3);
+        let only = vec!["jmdict".to_string()];
+        assert_eq!(db.get("jmdict", 1467640).unwrap().unwrap().jlpt, Some(5));
+        assert_eq!(db.get("jmdict", 1000225).unwrap().unwrap().jlpt, Some(4));
+        assert_eq!(db.get("jmdict", 2000002).unwrap().unwrap().jlpt, None);
+        let n5: Vec<i64> = db
+            .jlpt_words(5, 10, &only)
+            .unwrap()
+            .iter()
+            .map(|e| e.id)
+            .collect();
+        assert_eq!(n5, [1236120, 1467640]);
+        db.remove_source("jlpt").unwrap();
+        assert_eq!(db.get("jmdict", 1467640).unwrap().unwrap().jlpt, None);
     }
 
     #[test]

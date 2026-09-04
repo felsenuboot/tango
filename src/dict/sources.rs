@@ -75,6 +75,39 @@ pub const JMNEDICT: Source = Source {
     latest: None,
 };
 
+/// JLPT vocabulary levels, one CSV per level. Unofficial lists (Jonathan Waller's, with JMdict
+/// numbers added by Stephen Kraus); an opt-in download, never fetched by itself.
+pub const JLPT: Source = Source {
+    id: "jlpt",
+    name: "JLPT",
+    description: "N5–N1 per word: Jonathan Waller's unofficial lists with JMdict numbers, by Stephen Kraus. \
+                  There are no official lists.",
+    url: "https://raw.githubusercontent.com/stephenmk/yomitan-jlpt-vocab/main/original_data/n5.csv",
+    filename: "jlpt-n5.csv",
+    extra_files: &[
+        (
+            "https://raw.githubusercontent.com/stephenmk/yomitan-jlpt-vocab/main/original_data/n4.csv",
+            "jlpt-n4.csv",
+        ),
+        (
+            "https://raw.githubusercontent.com/stephenmk/yomitan-jlpt-vocab/main/original_data/n3.csv",
+            "jlpt-n3.csv",
+        ),
+        (
+            "https://raw.githubusercontent.com/stephenmk/yomitan-jlpt-vocab/main/original_data/n2.csv",
+            "jlpt-n2.csv",
+        ),
+        (
+            "https://raw.githubusercontent.com/stephenmk/yomitan-jlpt-vocab/main/original_data/n1.csv",
+            "jlpt-n1.csv",
+        ),
+    ],
+    licence: "Creative Commons Attribution-ShareAlike 4.0 (lists CC BY, Jonathan Waller)",
+    licence_url: "https://github.com/stephenmk/yomitan-jlpt-vocab",
+    size_mb: 1,
+    latest: None,
+};
+
 /// KANJIDIC2: readings, meanings, stroke count, grade, JLPT and frequency per kanji.
 pub const KANJIDIC: Source = Source {
     id: "kanjidic",
@@ -158,7 +191,7 @@ pub const TATOEBA: Source = Source {
 /// Every source, in the default search order. The kanji sources hold no entries; they are
 /// listed so the Dictionaries page manages them like the others.
 pub const SOURCES: &[&Source] = &[
-    &JMDICT, &WADOKU, &JMNEDICT, &KANJIDIC, &KANJIVG, &RADKFILE, &TATOEBA,
+    &JMDICT, &WADOKU, &JMNEDICT, &JLPT, &KANJIDIC, &KANJIVG, &RADKFILE, &TATOEBA,
 ];
 
 pub fn by_id(id: &str) -> Option<&'static Source> {
@@ -235,6 +268,15 @@ mod tests {
             );
         }
         assert!(by_id("nope").is_none());
+    }
+
+    #[test]
+    fn jlpt_files_match_the_reader() {
+        let names: Vec<&str> = std::iter::once(JLPT.filename)
+            .chain(JLPT.extra_files.iter().map(|(_, name)| *name))
+            .collect();
+        let expected: Vec<&str> = crate::dict::jlpt::FILES.iter().map(|(n, _)| *n).collect();
+        assert_eq!(names, expected);
     }
 
     #[test]

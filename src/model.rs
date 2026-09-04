@@ -65,6 +65,8 @@ pub struct Entry {
     pub pitch: Vec<u8>,
     pub senses: Vec<Sense>,
     pub common: bool,
+    /// JLPT level 5 (easiest) to 1, from the optional JLPT lists; JMdict entries only.
+    pub jlpt: Option<u8>,
 }
 
 impl Entry {

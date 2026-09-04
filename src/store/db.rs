@@ -1,6 +1,6 @@
 //! The dictionary database: one SQLite file, plain SQL.
 //!
-//! Schema v7: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
+//! Schema v8: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
 //! source and the source's own number, with its pitch accent), `forms` (kanji and readings),
 //! `senses`, `glosses`, the kanji tables (`kanji` from KANJIDIC2, `kanji_strokes` from KanjiVG,
 //! `kanji_radicals` from RADKFILE), the Tatoeba tables (`sentences`, `sentence_links`,
@@ -25,7 +25,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::model::{Entry, Gloss, Kanji, Radical, Sense, Sentence, SentenceWord, Strokes};
 
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -90,6 +90,11 @@ CREATE TABLE IF NOT EXISTS kanji_radicals (
     PRIMARY KEY (radical, literal)
 );
 CREATE INDEX IF NOT EXISTS kanji_radicals_literal ON kanji_radicals(literal);
+-- JLPT level per JMdict number, from the optional lists.
+CREATE TABLE IF NOT EXISTS jlpt (
+    seq INTEGER PRIMARY KEY,
+    level INTEGER NOT NULL
+);
 -- External-content index over glosses.text; `rebuild_gloss_index` fills it after an import.
 -- remove_diacritics 2: \"uber\" finds \"über\".
 CREATE VIRTUAL TABLE IF NOT EXISTS gloss_fts USING fts5(
@@ -400,6 +405,7 @@ impl Database {
             "kanjidic" => &["kanji"],
             "kanjivg" => &["kanji_strokes"],
             "radkfile" => &["kanji_radicals"],
+            "jlpt" => &["jlpt"],
             "tatoeba" => &["sentence_words", "sentence_links", "sentences"],
             _ => &[],
         };
@@ -628,6 +634,39 @@ impl Database {
             .conn
             .query_row("SELECT count(*) FROM kanji", [], |r| r.get(0))?;
         Ok(n > 0)
+    }
+
+    // -- JLPT -------------------------------------------------------------------------------
+
+    /// Inserts `(JMdict number, level)` rows; a word on several lists keeps the easiest level.
+    pub fn insert_jlpt(&self, rows: &[(i64, u8)]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO jlpt (seq, level) VALUES (?1, ?2)
+                 ON CONFLICT(seq) DO UPDATE SET level = max(level, excluded.level)",
+            )?;
+            for (seq, level) in rows {
+                ins.execute(params![seq, i64::from(*level)])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The JMdict words of one JLPT level, common first.
+    pub fn jlpt_words(&self, level: u8, limit: usize, sources: &[String]) -> anyhow::Result<Vec<Entry>> {
+        if !sources.iter().any(|s| s == "jmdict") {
+            return Ok(Vec::new());
+        }
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT e.id FROM jlpt j JOIN entries e ON e.seq = j.seq AND e.source = 'jmdict'
+             WHERE j.level = ?1 ORDER BY e.common DESC, e.seq LIMIT ?2",
+        )?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![i64::from(level), limit as i64], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        self.load(&ids)
     }
 
     // -- sentences --------------------------------------------------------------------------
@@ -961,6 +1000,29 @@ impl Database {
             ));
         }
         let index: HashMap<i64, usize> = entries.iter().enumerate().map(|(i, e)| (e.0, i)).collect();
+
+        // JLPT levels sit on JMdict numbers, not internal ids.
+        let seqs: Vec<i64> = entries
+            .iter()
+            .filter(|(_, e)| e.source == "jmdict")
+            .map(|(_, e)| e.id)
+            .collect();
+        if !seqs.is_empty() {
+            let seq_marks = vec!["?"; seqs.len()].join(",");
+            let mut stmt = self
+                .conn
+                .prepare(&format!("SELECT seq, level FROM jlpt WHERE seq IN ({seq_marks})"))?;
+            let levels: HashMap<i64, u8> = stmt
+                .query_map(params_from_iter(seqs.iter()), |r| {
+                    Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as u8))
+                })?
+                .collect::<Result<_, _>>()?;
+            for (_, e) in entries.iter_mut() {
+                if e.source == "jmdict" {
+                    e.jlpt = levels.get(&e.id).copied();
+                }
+            }
+        }
 
         let mut stmt = self.conn.prepare(&format!(
             "SELECT entry_id, kind, text, info, restr FROM forms WHERE entry_id IN ({marks})
@@ -1530,7 +1592,7 @@ mod tests {
             .query_row("SELECT count(*) FROM glosses", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stale, 0);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("7"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("8"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1556,7 +1618,7 @@ mod tests {
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
         assert_eq!(db.entry_count().unwrap(), 7);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("7"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("8"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

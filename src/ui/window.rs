@@ -1573,6 +1573,15 @@ fn result_row(hit: &Hit, langs: &[String], listed: bool) -> adw::ActionRow {
             .build();
         row.add_suffix(&tag);
     }
+    if let Some(level) = entry.jlpt {
+        let tag = gtk::Label::builder()
+            .label(format!("N{level}"))
+            .valign(gtk::Align::Center)
+            .tooltip_text(format!("JLPT N{level} (unofficial lists)"))
+            .css_classes(["tango-jlpt"])
+            .build();
+        row.add_suffix(&tag);
+    }
     if entry.source != "jmdict"
         && let Some(source) = sources::by_id(&entry.source)
     {

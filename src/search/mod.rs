@@ -70,6 +70,7 @@ fn matches(entry: &Entry, tag: query::Tag) -> bool {
             .flat_map(|s| &s.misc)
             .any(|m| m.contains(part)),
         query::Tag::Sentences | query::Tag::Names => true,
+        query::Tag::Jlpt(level) => entry.jlpt == Some(level),
     }
 }
 
@@ -133,6 +134,24 @@ pub fn run(
             .then(|| "Names need JMnedict, see the Dictionaries page in Preferences.".to_string())
     });
     let text = q.text.as_str();
+    // `#jlpt-n5` on its own lists that level, common words first.
+    let level = q.tags.iter().find_map(|t| match t {
+        query::Tag::Jlpt(level) => Some(*level),
+        _ => None,
+    });
+    if text.is_empty()
+        && let Some(level) = level
+    {
+        for e in db.jlpt_words(level, limit * 4, sources)? {
+            hits.push(e, None);
+        }
+        hits.list.truncate(limit);
+        return Ok(Outcome {
+            hits: hits.list,
+            sentences: Vec::new(),
+            hint,
+        });
+    }
     if text.is_empty() || sources.is_empty() {
         return Ok(Outcome {
             hits: hits.list,
@@ -328,6 +347,31 @@ mod tests {
     }
 
     #[test]
+    fn jlpt_tag_filters_and_lists() {
+        let db = sample_db();
+        let lists = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jlpt/jlpt-n5.csv");
+        import::import_file(&db, &crate::dict::sources::JLPT, &lists, &mut |_, _| {}).unwrap();
+        assert_eq!(
+            ids_of(&run(&db, "#jlpt-n5", 10, &only_jmdict(), &[]).unwrap()),
+            [1236120, 1467640]
+        );
+        assert_eq!(
+            ids_of(&run(&db, "#jlpt-n4", 10, &only_jmdict(), &[]).unwrap()),
+            [1000225]
+        );
+        assert_eq!(
+            ids_of(&run(&db, "#jlpt-n5 猫", 10, &only_jmdict(), &[]).unwrap()),
+            [1467640]
+        );
+        assert!(
+            run(&db, "#jlpt-n1 猫", 10, &only_jmdict(), &[])
+                .unwrap()
+                .hits
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn names_show_for_exact_matches_and_with_the_tag() {
         let (db, both) = with_names();
         // A prefix search stays free of names, an exact form finds them after the words.
@@ -406,13 +450,13 @@ mod tests {
                 .iter()
                 .any(|s| s.misc.iter().any(|m| m.contains("kana")))
         }));
-        let unknown = run(&db, "#jlpt-n5 cat", 10, &only_jmdict(), &[]).unwrap();
+        let unknown = run(&db, "#bogus cat", 10, &only_jmdict(), &[]).unwrap();
         assert!(
             unknown
                 .hint
                 .as_deref()
                 .unwrap()
-                .starts_with("Unknown tag #jlpt-n5.")
+                .starts_with("Unknown tag #bogus.")
         );
         assert!(!unknown.hits.is_empty()); // the unknown tag is ignored, not a filter
     }
