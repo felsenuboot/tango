@@ -1,8 +1,10 @@
 //! The dictionary database: one SQLite file, plain SQL.
 //!
-//! Schema v2: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
-//! source and the source's own number), `forms` (kanji and readings), `senses`, `glosses`. Search
-//! is prefix/LIKE based; an FTS5 index over the glosses is issue #8.
+//! Schema v3: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
+//! source and the source's own number), `forms` (kanji and readings), `senses`, `glosses`, and
+//! `gloss_fts`, an FTS5 index over the gloss text. Headwords and readings are prefix searches on
+//! the `forms_text` index; glosses go through FTS5 (a LIKE scan took half a second per keystroke
+//! on the full JMdict, FTS5 answers in a few milliseconds).
 //!
 //! Everything here is derived data that can be imported again from the cached downloads. So a
 //! schema version bump does not migrate: the tables are dropped and the app asks for an import.
@@ -19,7 +21,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::model::{Entry, Gloss, Sense};
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -56,6 +58,11 @@ CREATE TABLE IF NOT EXISTS glosses (
     pos INTEGER NOT NULL,
     text TEXT NOT NULL
 );
+-- External-content index over glosses.text; `rebuild_gloss_index` fills it after an import.
+-- remove_diacritics 2: \"uber\" finds \"über\".
+CREATE VIRTUAL TABLE IF NOT EXISTS gloss_fts USING fts5(
+    text, content='glosses', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2'
+);
 CREATE INDEX IF NOT EXISTS entries_source ON entries(source);
 CREATE INDEX IF NOT EXISTS forms_text ON forms(text);
 CREATE INDEX IF NOT EXISTS forms_entry ON forms(entry_id);
@@ -74,6 +81,19 @@ pub fn is_japanese(text: &str) -> bool {
 
 fn like_escape(text: &str) -> String {
     text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+/// An FTS5 query for typed text: every word quoted, the last one as a prefix, so "domestic ca"
+/// matches "domestic cat". `None` when there is no word in it.
+fn fts_query(text: &str) -> Option<String> {
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| format!("\"{}\"", w.replace('"', "\"\"")))
+        .collect();
+    if words.is_empty() {
+        return None;
+    }
+    Some(format!("{}*", words.join(" ")))
 }
 
 fn split(joined: &str) -> Vec<String> {
@@ -118,22 +138,23 @@ impl Database {
     }
 
     /// Creates the tables, or recreates them when the file is from another schema version
-    /// (see the module docs for why that is a rebuild and not a migration).
+    /// (see the module docs for why that is a rebuild and not a migration). A file that has our
+    /// tables but no valid schema row is a rebuild that was interrupted; it is wiped as well.
     fn prepare_schema(&self) -> anyhow::Result<()> {
-        let has_meta: i64 = self.conn.query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
-            [],
-            |r| r.get(0),
-        )?;
-        if has_meta > 0 {
-            let stored = self.meta("schema")?;
+        let tables = self.our_tables()?;
+        if !tables.is_empty() {
+            let stored = if tables.iter().any(|t| t == "meta") {
+                self.meta("schema")?
+            } else {
+                None
+            };
             if stored.as_deref() != Some(SCHEMA_VERSION.to_string().as_str()) {
                 log::warn!(
                     "dictionary database has schema {}, this build uses {SCHEMA_VERSION}: rebuilding it, \
                      the dictionaries need importing again",
                     stored.as_deref().unwrap_or("?")
                 );
-                self.drop_everything()?;
+                self.drop_everything(&tables)?;
             }
         }
         self.conn.execute_batch(SCHEMA)?;
@@ -144,19 +165,43 @@ impl Database {
         Ok(())
     }
 
-    fn drop_everything(&self) -> anyhow::Result<()> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")?;
-        let names: Vec<String> = stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
-        drop(stmt);
+    /// Every table in the file, sorted so a virtual table comes before its shadow tables.
+    fn our_tables(&self) -> anyhow::Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )?;
+        let names = stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(names)
+    }
+
+    /// Drops `tables` in one transaction, so an interrupted rebuild leaves either everything or
+    /// nothing. Foreign keys are off for it (a PRAGMA inside a transaction is a no-op).
+    fn drop_everything(&self, tables: &[String]) -> anyhow::Result<()> {
         self.conn.execute_batch("PRAGMA foreign_keys = OFF")?;
-        for name in names {
-            self.conn
-                .execute_batch(&format!("DROP TABLE IF EXISTS \"{name}\""))?;
-        }
+        let result = (|| -> anyhow::Result<()> {
+            let tx = self.conn.unchecked_transaction()?;
+            for name in tables {
+                tx.execute_batch(&format!("DROP TABLE IF EXISTS \"{name}\""))?;
+            }
+            tx.commit()?;
+            Ok(())
+        })();
         self.conn.execute_batch("PRAGMA foreign_keys = ON")?;
-        self.vacuum()
+        result?;
+        // The tables are gone either way; a VACUUM failing (no temp space) only costs disk.
+        if let Err(e) = self.vacuum() {
+            log::warn!("could not compact the rebuilt database: {e:#}");
+        }
+        Ok(())
+    }
+
+    /// Fills the FTS5 index from the glosses table. Imports and removals change the glosses in
+    /// bulk, so the index is rebuilt afterwards instead of maintained row by row (11 s for the
+    /// full JMdict).
+    pub fn rebuild_gloss_index(&self) -> anyhow::Result<()> {
+        self.conn
+            .execute_batch("INSERT INTO gloss_fts(gloss_fts) VALUES('rebuild')")?;
+        Ok(())
     }
 
     /// Gives the space of deleted rows back to the file system. Not inside a transaction.
@@ -464,18 +509,20 @@ impl Database {
                  GROUP BY f.entry_id ORDER BY exact DESC, e.common DESC, prio, len, f.entry_id LIMIT ?"
             )
         } else {
-            let esc = like_escape(q);
+            let Some(fts) = fts_query(q) else {
+                return Ok(Vec::new());
+            };
             values.push(Value::Text(q.to_lowercase()));
             values.extend(source_params.iter().cloned());
-            values.push(Value::Text(format!("{esc}%")));
-            values.push(Value::Text(format!("% {esc}%")));
+            values.push(Value::Text(fts));
             values.extend(source_params.iter().cloned());
             values.push(Value::Integer(limit as i64));
             format!(
                 "SELECT s.entry_id, max(lower(g.text) = ?) AS exact, e.common, {priority} AS prio,
                         min(length(g.text)) AS len
-                 FROM glosses g JOIN senses s ON s.id = g.sense_id JOIN entries e ON e.id = s.entry_id
-                 WHERE (g.text LIKE ? ESCAPE '\\' OR g.text LIKE ? ESCAPE '\\') AND e.source IN ({members})
+                 FROM gloss_fts f JOIN glosses g ON g.rowid = f.rowid
+                      JOIN senses s ON s.id = g.sense_id JOIN entries e ON e.id = s.entry_id
+                 WHERE gloss_fts MATCH ? AND e.source IN ({members})
                  GROUP BY s.entry_id ORDER BY exact DESC, e.common DESC, prio, len, s.entry_id LIMIT ?"
             )
         };
@@ -515,6 +562,7 @@ mod tests {
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap();
         db.finish_source("jmdict", Some("2024-01-01"), WHEN, 7).unwrap();
+        db.rebuild_gloss_index().unwrap();
         db
     }
 
@@ -562,10 +610,28 @@ mod tests {
     }
 
     #[test]
-    fn gloss_search_is_case_insensitive_and_escapes_like() {
+    fn gloss_search_is_case_insensitive_and_takes_any_text() {
         let db = sample_db();
         assert_eq!(db.search("KATZE", 100, &jmdict_only()).unwrap()[0].id, 1467640);
         assert!(db.search("100%", 100, &jmdict_only()).unwrap().is_empty());
+        assert!(
+            db.search("\"quoted\" (parens)", 100, &jmdict_only())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            db.search("grüne borsten", 100, &jmdict_only()).unwrap()[0].id,
+            2000001
+        );
+        assert_eq!(db.search("grune", 100, &jmdict_only()).unwrap()[0].id, 2000001); // diacritics folded
+    }
+
+    #[test]
+    fn fts_queries_are_quoted() {
+        assert_eq!(fts_query("cat").as_deref(), Some("\"cat\"*"));
+        assert_eq!(fts_query("domestic ca").as_deref(), Some("\"domestic\" \"ca\"*"));
+        assert_eq!(fts_query("a\"b").as_deref(), Some("\"a\"\"b\"*"));
+        assert_eq!(fts_query("   "), None);
     }
 
     #[test]
@@ -578,6 +644,7 @@ mod tests {
         cat.id = 7;
         db.insert(&[cat]).unwrap();
         db.finish_source("other", None, WHEN, 1).unwrap();
+        db.rebuild_gloss_index().unwrap();
 
         assert!(db.search("cat", 100, &[]).unwrap().is_empty());
         let only_other = db.search("cat", 100, &["other".into()]).unwrap();
@@ -631,6 +698,31 @@ mod tests {
     }
 
     #[test]
+    fn leftovers_of_an_interrupted_rebuild_are_wiped() {
+        let dir = std::env::temp_dir().join(format!("tango-db-partial-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("partial.sqlite");
+        {
+            // meta and entries already dropped, glosses still there with stale rows.
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE glosses (sense_id INTEGER, lang TEXT, pos INTEGER, text TEXT);
+                 INSERT INTO glosses VALUES (1, 'eng', 0, 'stale');",
+            )
+            .unwrap();
+        }
+        let db = Database::open(&path).unwrap();
+        let stale: i64 = db
+            .conn
+            .query_row("SELECT count(*) FROM glosses", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stale, 0);
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("3"));
+        drop(db);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn older_schema_is_rebuilt() {
         let dir = std::env::temp_dir().join(format!("tango-db-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -646,12 +738,12 @@ mod tests {
             .unwrap();
         }
         let db = Database::open(&path).unwrap();
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("2"));
         assert_eq!(db.entry_count().unwrap(), 0);
         assert!(db.sources().unwrap().is_empty());
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
         assert_eq!(db.entry_count().unwrap(), 7);
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("3"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

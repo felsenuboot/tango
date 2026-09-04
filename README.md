@@ -36,7 +36,6 @@ Offline, with English and German glosses side by side.
 - Wadoku (German, with pitch accent) next to JMdict
 - Kanji view: KANJIDIC details, KanjiVG stroke order, radicals
 - Example sentences from Tatoeba
-- FTS5 index for faster gloss search
 
 Everything above plus the WaniKani, MaruMori, Kitsun.io and Takoboto
 integrations is tracked in the [issues](https://github.com/felsenuboot/tango/issues);

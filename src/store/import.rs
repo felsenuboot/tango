@@ -40,6 +40,8 @@ fn import_jmdict(db: &Database, source: &Source, path: &Path, report: Report) ->
     })?;
     db.insert(&batch)?;
     db.finish_source(source.id, version.as_deref(), &now_iso8601(), count as i64)?;
+    report("Indexing the glosses…".into(), None);
+    db.rebuild_gloss_index()?;
     report(format!("Imported {count} entries."), Some(1.0));
     log::info!(
         "imported {count} {} entries (version {}) from {}",
@@ -86,8 +88,14 @@ pub fn remove(db: &Database, source: &Source, cache: &Path, report: Report) -> a
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => log::warn!("could not delete the cached {}: {e}", source.filename),
     }
+    db.rebuild_gloss_index()?;
     report("Compacting the database…".into(), None);
-    db.vacuum()?;
+    if let Err(e) = db.vacuum() {
+        log::warn!(
+            "could not compact the database after removing {}: {e:#}",
+            source.name
+        );
+    }
     Ok(())
 }
 

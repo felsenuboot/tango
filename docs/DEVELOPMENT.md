@@ -54,7 +54,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/search/mod.rs` | the search pipeline: romaji to kana, deinflection, database, hits with notes |
 | `src/search/romaji.rs` | romaji → hiragana/katakana (Hepburn and the usual typing variants) |
 | `src/search/deinflect.rs` | rule table from inflected verbs and adjectives back to dictionary forms |
-| `src/store/db.rs` | SQLite schema (v2: `sources`, entries per source), insert, load, lookup, search |
+| `src/store/db.rs` | SQLite schema (v3: `sources`, entries per source, FTS5 over glosses), insert, load, lookup, search |
 | `src/store/import.rs` | the import, download and remove jobs the UI runs on a worker thread |
 | `src/ui/mod.rs` | app startup, actions, CSS, the one main window |
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
@@ -96,6 +96,13 @@ never a wrong result. The chain is shown in the result row, innermost form
 first ("書かれました → 書く: passive, polite, past"). Text that is romaji
 throughout is converted to hiragana and katakana as well; exact reading
 matches come first, then the gloss search, then the deinflected readings.
+
+The gloss search is an FTS5 query over `gloss_fts`, an external-content index
+on `glosses.text` with the `unicode61` tokenizer and diacritics removed, so
+"uber" finds "über". Every typed word is quoted and the last one is a prefix.
+The index is rebuilt after each import and removal (11 s for the full JMdict,
+35 MB on disk). Measured on the 2026-09-04 JMdict: the previous LIKE scan took
+470 ms per query, FTS5 takes 2 to 14 ms.
 
 ## JMdict and its languages
 
