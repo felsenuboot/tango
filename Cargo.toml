@@ -1,6 +1,6 @@
 [package]
 name = "tango"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "単語 – a Japanese dictionary (JMdict, Wadoku) for GNOME, in GTK4 + libadwaita"
 license = "MIT"
