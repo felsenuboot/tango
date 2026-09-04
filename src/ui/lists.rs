@@ -10,16 +10,28 @@ use adw::prelude::*;
 use gtk::gio;
 use gtk::glib::{self, clone};
 
+use std::collections::{HashMap, HashSet};
+
 use super::window::Window;
+use crate::accounts::{Kind, Learned};
+use crate::model::Entry;
 use crate::store::csv;
 use crate::store::export::{self, Layout};
 use crate::store::user::{Backup, List, ListEntry};
+
+/// The id of the built-in WaniKani list: not a row in `lists`, built from the synced items.
+pub const WANIKANI_LIST: i64 = -1;
 
 pub struct ListsPage {
     pub widget: gtk::Stack,
     lists_box: gtk::ListBox,
     entries_box: gtk::ListBox,
     title: gtk::Label,
+    /// Kind, level and stage filters; shown for the WaniKani list only.
+    filters: gtk::Box,
+    kind: gtk::DropDown,
+    level: gtk::DropDown,
+    stage: gtk::DropDown,
     win: RefCell<Weak<Window>>,
     /// The list whose entries are shown, if the entries page is up.
     current: Cell<Option<i64>>,
@@ -118,8 +130,36 @@ impl ListsPage {
         header.append(&back);
         header.append(&title);
         header.append(&menu_button);
+        // Filters for the WaniKani list (#55): what kind of item, which level, which stage.
+        let kind = gtk::DropDown::from_strings(&["Words and kanji", "Words", "Kanji"]);
+        let mut levels = vec!["Any level".to_string()];
+        levels.extend((1..=60).map(|n| format!("Level {n}")));
+        let level_refs: Vec<&str> = levels.iter().map(String::as_str).collect();
+        let level = gtk::DropDown::from_strings(&level_refs);
+        let stage = gtk::DropDown::from_strings(&[
+            "Any stage",
+            "Apprentice",
+            "Guru",
+            "Master",
+            "Enlightened",
+            "Burned",
+            "Locked",
+        ]);
+        let filters = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(6)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_bottom(6)
+            .visible(false)
+            .build();
+        for d in [&kind, &level, &stage] {
+            d.set_hexpand(true);
+            filters.append(d);
+        }
         let entries_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
         entries_page.append(&header);
+        entries_page.append(&filters);
         entries_page.append(
             &gtk::ScrolledWindow::builder()
                 .child(&entries_box)
@@ -139,12 +179,27 @@ impl ListsPage {
             lists_box,
             entries_box,
             title,
+            filters,
+            kind,
+            level,
+            stage,
             win: RefCell::new(Weak::new()),
             current: Cell::new(None),
             lists: RefCell::new(Vec::new()),
             entries: RefCell::new(Vec::new()),
         });
         this.install_actions();
+        for d in [&this.kind, &this.level, &this.stage] {
+            d.connect_selected_notify(clone!(
+                #[weak]
+                this,
+                move |_| {
+                    if this.current.get() == Some(WANIKANI_LIST) {
+                        this.show_entries(WANIKANI_LIST);
+                    }
+                }
+            ));
+        }
         this.lists_box.connect_row_activated(clone!(
             #[weak]
             this,
@@ -181,10 +236,19 @@ impl ListsPage {
     /// Reloads the lists, and the open list's entries.
     pub fn refresh(&self) {
         let Some(win) = self.window() else { return };
-        let lists = win.user().lists().unwrap_or_else(|e| {
+        let mut lists = win.user().lists().unwrap_or_else(|e| {
             log::error!("cannot read the lists: {e:#}");
             Vec::new()
         });
+        // The WaniKani list exists while an account has synced something.
+        let wanikani = win.user().learned_count("wanikani").unwrap_or(0);
+        if wanikani > 0 {
+            lists.push(List {
+                id: WANIKANI_LIST,
+                name: "WaniKani".into(),
+                entries: wanikani as i64,
+            });
+        }
         self.lists_box.remove_all();
         for list in &lists {
             let row = adw::ActionRow::builder()
@@ -230,12 +294,19 @@ impl ListsPage {
             .map(|l| l.name.clone())
             .unwrap_or_default();
         self.title.set_text(&name);
-        let entries = win.user().entries(id).unwrap_or_else(|e| {
-            log::error!("cannot read list {id}: {e:#}");
-            Vec::new()
-        });
+        self.filters.set_visible(id == WANIKANI_LIST);
+        let (entries, learned): (Vec<ListEntry>, Vec<Option<Learned>>) = if id == WANIKANI_LIST {
+            self.wanikani_rows(&win)
+        } else {
+            let entries = win.user().entries(id).unwrap_or_else(|e| {
+                log::error!("cannot read list {id}: {e:#}");
+                Vec::new()
+            });
+            let n = entries.len();
+            (entries, vec![None; n])
+        };
         self.entries_box.remove_all();
-        for e in &entries {
+        for (e, l) in entries.iter().zip(&learned) {
             let mut title = glib::markup_escape_text(&e.headword).to_string();
             if !e.reading.is_empty() && e.reading != e.headword {
                 title.push_str(&format!(
@@ -255,27 +326,131 @@ impl ListsPage {
                 .title_lines(1)
                 .subtitle_lines(1)
                 .build();
-            let remove = gtk::Button::builder()
-                .icon_name("list-remove-symbolic")
-                .valign(gtk::Align::Center)
-                .css_classes(["flat"])
-                .tooltip_text("Remove from this list")
-                .build();
-            let (source, seq) = (e.source.clone(), e.seq);
-            remove.connect_clicked(clone!(
-                #[weak]
-                win,
-                move |_| {
-                    if let Err(e) = win.user().remove(id, &source, seq) {
-                        log::error!("cannot remove from list {id}: {e:#}");
+            if let Some(l) = l {
+                let chip = super::entry_view::learned_chip(l, "");
+                chip.set_valign(gtk::Align::Center);
+                row.add_suffix(&chip);
+            } else {
+                let remove = gtk::Button::builder()
+                    .icon_name("list-remove-symbolic")
+                    .valign(gtk::Align::Center)
+                    .css_classes(["flat"])
+                    .tooltip_text("Remove from this list")
+                    .build();
+                let (source, seq) = (e.source.clone(), e.seq);
+                remove.connect_clicked(clone!(
+                    #[weak]
+                    win,
+                    move |_| {
+                        if let Err(e) = win.user().remove(id, &source, seq) {
+                            log::error!("cannot remove from list {id}: {e:#}");
+                        }
+                        win.lists_changed();
                     }
-                    win.lists_changed();
-                }
-            ));
-            row.add_suffix(&remove);
+                ));
+                row.add_suffix(&remove);
+            }
             self.entries_box.append(&row);
         }
         *self.entries.borrow_mut() = entries;
+    }
+
+    /// The WaniKani list after the filters: words resolved to their dictionary entries where
+    /// one has the form (the first of the enabled sources wins), kanji as rows of their own,
+    /// each with its learned item for the chip.
+    fn wanikani_rows(&self, win: &Rc<Window>) -> (Vec<ListEntry>, Vec<Option<Learned>>) {
+        let all = win.user().learned_of("wanikani").unwrap_or_else(|e| {
+            log::error!("cannot read the WaniKani items: {e:#}");
+            Vec::new()
+        });
+        let kind = match self.kind.selected() {
+            1 => Some(Kind::Vocabulary),
+            2 => Some(Kind::Kanji),
+            _ => None,
+        };
+        let level = match self.level.selected() {
+            0 => None,
+            n => Some(n),
+        };
+        // The stage drop-down's rows, from a WaniKani stage number.
+        let stage_row = |s: u8| -> u32 {
+            match s {
+                0 => 6,
+                1..=4 => 1,
+                5 | 6 => 2,
+                7 => 3,
+                8 => 4,
+                _ => 5,
+            }
+        };
+        let wanted_stage = self.stage.selected();
+        let items: Vec<&Learned> = all
+            .iter()
+            .filter(|l| kind.is_none_or(|k| l.kind == k))
+            .filter(|l| level.is_none_or(|n| l.level == n))
+            .filter(|l| wanted_stage == 0 || stage_row(l.stage) == wanted_stage)
+            .collect();
+        // One lookup per chunk of forms, then the first entry that carries each form.
+        let enabled = win.config().borrow().enabled_sources();
+        let langs = win.config().borrow().gloss_languages.clone();
+        let texts: Vec<String> = items
+            .iter()
+            .filter(|l| l.kind == Kind::Vocabulary)
+            .map(|l| l.text.clone())
+            .collect();
+        let mut by_text: HashMap<&str, Entry> = HashMap::new();
+        for chunk in texts.chunks(400) {
+            let wanted: HashSet<&str> = chunk.iter().map(String::as_str).collect();
+            let found = win
+                .db()
+                .lookup(chunk, &enabled, chunk.len() * 4)
+                .unwrap_or_default();
+            for entry in found {
+                let forms: Vec<String> = entry.kanji.iter().chain(&entry.readings).cloned().collect();
+                for form in forms {
+                    if let Some(&key) = wanted.get(form.as_str())
+                        && !by_text.contains_key(key)
+                    {
+                        by_text.insert(key, entry.clone());
+                    }
+                }
+            }
+        }
+        let blank = |headword: &str, source: &str, gloss: &str| ListEntry {
+            source: source.into(),
+            seq: 0,
+            headword: headword.into(),
+            reading: String::new(),
+            gloss: gloss.into(),
+            note: String::new(),
+            added: String::new(),
+        };
+        let mut entries = Vec::with_capacity(items.len());
+        let mut learned = Vec::with_capacity(items.len());
+        for l in items {
+            let row = match (l.kind, by_text.get(l.text.as_str())) {
+                (Kind::Kanji, _) => blank(&l.text, "kanji", "kanji"),
+                // The row carries WaniKani's own form (今日は and こんにちは are two items), the
+                // entry's reading when it adds something.
+                (Kind::Vocabulary, Some(e)) => ListEntry {
+                    source: e.source.clone(),
+                    seq: e.id,
+                    headword: l.text.clone(),
+                    reading: if e.reading() == l.text {
+                        String::new()
+                    } else {
+                        e.reading().to_string()
+                    },
+                    gloss: e.summary(&langs).to_string(),
+                    note: String::new(),
+                    added: String::new(),
+                },
+                (Kind::Vocabulary, None) => blank(&l.text, "", "not in the installed dictionaries"),
+            };
+            entries.push(row);
+            learned.push(Some(l.clone()));
+        }
+        (entries, learned)
     }
 
     fn install_actions(self: &Rc<Self>) {
@@ -337,6 +512,9 @@ impl ListsPage {
         let (Some(win), Some(id)) = (self.window(), self.current.get()) else {
             return;
         };
+        if self.built_in(&win) {
+            return;
+        }
         let current = self.title.text().to_string();
         let target = win.clone();
         ask_name(&win, "Rename list", &current, "Rename", move |name| match target
@@ -352,6 +530,9 @@ impl ListsPage {
         let (Some(win), Some(id)) = (self.window(), self.current.get()) else {
             return;
         };
+        if self.built_in(&win) {
+            return;
+        }
         if let Err(e) = win.user().move_list_up(id) {
             log::error!("cannot move list {id}: {e:#}");
         }
@@ -362,6 +543,9 @@ impl ListsPage {
         let (Some(win), Some(id)) = (self.window(), self.current.get()) else {
             return;
         };
+        if self.built_in(&win) {
+            return;
+        }
         let name = self.title.text().to_string();
         let dialog = adw::AlertDialog::builder()
             .heading(format!("Delete \"{name}\"?"))
@@ -391,14 +575,27 @@ impl ListsPage {
 
     /// Writes the open list in `layout`; the dictionary entries are looked up for the layouts
     /// that want more than the one gloss a list keeps.
+    /// The WaniKani list is built from the account, so its rows cannot be edited here.
+    fn built_in(&self, win: &Rc<Window>) -> bool {
+        if self.current.get() == Some(WANIKANI_LIST) {
+            win.toast("The WaniKani list comes from your account; sync it on the Accounts page.");
+            return true;
+        }
+        false
+    }
+
     fn export(&self, layout: Layout) {
         let (Some(win), Some(id)) = (self.window(), self.current.get()) else {
             return;
         };
         let name = self.title.text().to_string();
-        let items = match win.user().entries(id) {
-            Ok(e) => e,
-            Err(e) => return win.toast(&format!("Cannot read the list: {e}")),
+        let items = if id == WANIKANI_LIST {
+            self.entries.borrow().clone()
+        } else {
+            match win.user().entries(id) {
+                Ok(e) => e,
+                Err(e) => return win.toast(&format!("Cannot read the list: {e}")),
+            }
         };
         let entries: Vec<_> = items
             .iter()
@@ -421,6 +618,9 @@ impl ListsPage {
         let (Some(win), Some(id)) = (self.window(), self.current.get()) else {
             return;
         };
+        if self.built_in(&win) {
+            return;
+        }
         open_text(&win, "CSV", &["*.csv", "*.tsv", "*.txt"], move |win, text| {
             let rows = csv::parse(&text);
             match export::parse_takoboto(&rows) {

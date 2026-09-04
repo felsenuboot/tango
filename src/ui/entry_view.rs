@@ -374,8 +374,13 @@ fn learned_row(learned: &[Learned], headword: &str) -> gtk::FlowBox {
 
 /// "今日は 3 · Burned", coloured by stage, edged by kind; the tooltip spells it out.
 pub fn learned_chip(l: &Learned, text: &str) -> gtk::Label {
+    let label = if text.is_empty() {
+        format!("{} · {}", l.level, accounts::stage_name(l.stage))
+    } else {
+        format!("{text} {} · {}", l.level, accounts::stage_name(l.stage))
+    };
     gtk::Label::builder()
-        .label(format!("{text} {} · {}", l.level, accounts::stage_name(l.stage)))
+        .label(label)
         .tooltip_text(format!(
             "{} {} on {}: level {}, SRS stage {} ({})",
             match l.kind {

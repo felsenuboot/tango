@@ -109,6 +109,10 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
             ("connect", token) => win.connect_wanikani(token.to_string(), || {}),
             other => log::warn!("autopilot: unknown wanikani step {other:?}"),
         },
+        "list" if arg == "WaniKani" => {
+            win.show_sidebar_page("lists");
+            win.lists_page().open_list(crate::ui::lists::WANIKANI_LIST);
+        }
         "list" => match win.user().list_by_name(arg) {
             Ok(Some(list)) => {
                 win.show_sidebar_page("lists");

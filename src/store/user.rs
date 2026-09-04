@@ -232,6 +232,37 @@ impl UserDb {
         Ok(())
     }
 
+    /// Everything one provider knows, vocabulary before kanji, by level and text.
+    pub fn learned_of(&self, provider: &str) -> anyhow::Result<Vec<Learned>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT provider, kind, text, level, stage FROM learned WHERE provider = ?1
+             ORDER BY kind DESC, level, text",
+        )?;
+        let rows = stmt.query_map(params![provider], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (provider, kind, text, level, stage) = row?;
+            if let Some(kind) = Kind::parse(&kind) {
+                out.push(Learned {
+                    provider,
+                    kind,
+                    text,
+                    level: level as u32,
+                    stage: stage as u8,
+                });
+            }
+        }
+        Ok(out)
+    }
+
     pub fn learned_count(&self, provider: &str) -> anyhow::Result<usize> {
         let n: i64 = self.conn.query_row(
             "SELECT count(*) FROM learned WHERE provider = ?1",

@@ -1029,6 +1029,18 @@ impl Window {
 
     /// Shows the dictionary entry behind a list row, if its source is still installed.
     pub fn open_list_entry(&self, item: &ListEntry) {
+        // Rows of the built-in WaniKani list: kanji open their page; a word no installed
+        // dictionary has is only a name.
+        if item.source == "kanji" {
+            if let Some(c) = item.headword.chars().next() {
+                self.show_kanji(c);
+            }
+            return;
+        }
+        if item.source.is_empty() {
+            self.toast(&format!("{} is not in the installed dictionaries", item.headword));
+            return;
+        }
         match self.db.get(&item.source, item.seq) {
             Ok(Some(entry)) => {
                 self.show_entry(entry);

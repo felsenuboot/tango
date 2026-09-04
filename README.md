@@ -56,8 +56,10 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   request.
 - 🐊 **WaniKani.** Connect an account on the Accounts page (the token lives
   in the keyring): entries and kanji pages show the WaniKani level and SRS
-  stage, and `#known`, `#unknown`, `#kanji-known` and `#wk-level-12` filter
-  by what you have learned.
+  stage, `#known`, `#unknown`, `#kanji-known` and `#wk-level-12` filter by
+  what you have learned, and the Lists page has a WaniKani list of every
+  synced word and kanji, filterable by kind, level and stage, exportable
+  like any list.
 - 🎨 **Desktop.** Adaptive layout, light and dark theme or the system's,
   keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+D` star, `Ctrl+I` import,
   `Ctrl+,` preferences).
@@ -168,6 +170,9 @@ desktop. Tick and delete when done; a bug goes into a new issue.
   purple "WaniKani 6 · Guru" chip (or whatever your stage is), the kanji page
   of 食 too, and `#known` / `#kanji-known` filter. Sync now and Disconnect
   work; after Disconnect the keyring item "Tango: wanikani API token" is gone.
+- [ ] **#55 WaniKani list.** Lists → WaniKani: the three filters narrow the
+  rows, a word row opens its entry, a kanji row its page, Export as… writes
+  the filtered rows, and Rename / Delete refuse with a toast.
 
 ## Name and licence
 
