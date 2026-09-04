@@ -13,6 +13,7 @@ use super::thousands;
 use super::window::Window;
 use crate::config::cache_dir;
 use crate::dict::sources::{self, Source};
+use crate::model::language_name;
 use crate::store::db::SourceStatus;
 
 /// Opens the dialog, on the page named `page` ("general", "dictionaries") if given.
@@ -60,37 +61,101 @@ fn general_page(win: &Rc<Window>) -> adw::PreferencesPage {
     look.add(&scheme);
 
     let glosses = adw::PreferencesGroup::builder()
-        .title("Glosses")
-        .description("Which translation comes first in an entry.")
+        .title("Languages")
+        .description(
+            "Which translations an entry shows, and which comes first. An entry that has none of \
+             them shows English, or whatever it has.",
+        )
         .build();
     page.add(&glosses);
-    let first = adw::ComboRow::builder()
-        .title("Preferred language")
-        .model(&gtk::StringList::new(&["English", "German"]))
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .css_classes(["boxed-list"])
         .build();
-    let langs = win.config().borrow().gloss_languages.clone();
-    first.set_selected(if langs.first().map(String::as_str) == Some("eng") {
-        0
-    } else {
-        1
-    });
-    first.connect_selected_notify({
-        let win = win.clone();
-        move |row| {
-            {
-                let mut cfg = win.config().borrow_mut();
-                cfg.gloss_languages = if row.selected() == 0 {
-                    vec!["eng".into(), "ger".into()]
-                } else {
-                    vec!["ger".into(), "eng".into()]
-                };
-                cfg.save();
-            }
-            win.rerender();
-        }
-    });
-    glosses.add(&first);
+    glosses.add(&list);
+    rebuild_languages(&list, win);
     page
+}
+
+/// The gloss languages JMdict and Wadoku carry, in the order the switches are listed.
+const LANGUAGES: &[&str] = &["eng", "ger", "dut", "fre", "rus", "spa", "hun", "slv", "swe"];
+
+/// A "Show first" choice over the enabled languages, then a switch per language.
+fn rebuild_languages(list: &gtk::ListBox, win: &Rc<Window>) {
+    list.remove_all();
+    let chosen = win.config().borrow().gloss_languages.clone();
+    let enabled: Vec<&str> = LANGUAGES
+        .iter()
+        .copied()
+        .filter(|l| chosen.iter().any(|c| c == l))
+        .collect();
+    let (weak_list, weak_win) = (list.downgrade(), Rc::downgrade(win));
+    let rebuild = move || {
+        let (list, win) = (weak_list.clone(), weak_win.clone());
+        move || {
+            if let (Some(list), Some(win)) = (list.upgrade(), win.upgrade()) {
+                rebuild_languages(&list, &win);
+            }
+        }
+    };
+    // Saves `langs` as the new list, re-renders the entry and rebuilds these rows.
+    let apply = |win: &Rc<Window>, langs: Vec<String>, rebuild: &dyn Fn()| {
+        {
+            let mut cfg = win.config().borrow_mut();
+            cfg.gloss_languages = langs;
+            cfg.save();
+        }
+        win.rerender();
+        win.refresh_search();
+        rebuild();
+    };
+    if enabled.len() > 1 {
+        let names: Vec<String> = enabled.iter().map(|l| language_name(l)).collect();
+        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let first = adw::ComboRow::builder()
+            .title("Show first")
+            .model(&gtk::StringList::new(&name_refs))
+            .build();
+        let current = chosen.first().and_then(|c| enabled.iter().position(|l| l == c));
+        first.set_selected(current.unwrap_or(0) as u32);
+        let enabled_owned: Vec<String> = enabled.iter().map(|l| l.to_string()).collect();
+        first.connect_selected_notify(clone!(
+            #[weak]
+            win,
+            #[strong]
+            rebuild,
+            move |row| {
+                let Some(pick) = enabled_owned.get(row.selected() as usize) else {
+                    return;
+                };
+                let mut langs = vec![pick.clone()];
+                langs.extend(enabled_owned.iter().filter(|l| *l != pick).cloned());
+                apply(&win, langs, &rebuild());
+            }
+        ));
+        list.append(&first);
+    }
+    for lang in LANGUAGES {
+        let row = adw::SwitchRow::builder()
+            .title(language_name(lang))
+            .active(chosen.iter().any(|c| c == lang))
+            .build();
+        row.connect_active_notify(clone!(
+            #[weak]
+            win,
+            #[strong]
+            rebuild,
+            move |row| {
+                let mut langs = win.config().borrow().gloss_languages.clone();
+                langs.retain(|l| l != lang);
+                if row.is_active() {
+                    langs.push(lang.to_string());
+                }
+                apply(&win, langs, &rebuild());
+            }
+        ));
+        list.append(&row);
+    }
 }
 
 fn accounts_page(win: &Rc<Window>) -> adw::PreferencesPage {

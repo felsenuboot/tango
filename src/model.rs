@@ -113,16 +113,22 @@ impl Entry {
         seen
     }
 
-    /// First gloss in the first of `langs` that has one; what a result row shows.
+    /// First gloss in the first of `langs` that has one; what a result row shows. English, then
+    /// anything, when the entry has none of them.
     pub fn summary(&self, langs: &[String]) -> &str {
-        for lang in langs {
+        let eng = "eng".to_string();
+        for lang in langs.iter().chain(std::iter::once(&eng)) {
             for s in &self.senses {
                 if let Some(g) = s.glosses.iter().find(|g| &g.lang == lang) {
                     return &g.text;
                 }
             }
         }
-        ""
+        self.senses
+            .iter()
+            .flat_map(|s| &s.glosses)
+            .next()
+            .map_or("", |g| g.text.as_str())
     }
 }
 
@@ -159,16 +165,29 @@ impl Entry {
     /// them ("no attempt to align senses between the languages", says the project). In practice a
     /// language with as many senses as English lines up with them by position, so those become
     /// translations of the same meaning; a language with a different count keeps its own block.
-    /// `preferred` orders the languages; the rest follow as the entry lists them.
+    /// Only the `preferred` languages are shown, in that order (issue #54); English when the
+    /// list is empty, and whatever the entry has (English first) when it has none of them, so an
+    /// entry never comes out blank.
     pub fn grouped(&self, preferred: &[String]) -> Grouped<'_> {
         let available = self.languages();
-        let mut order: Vec<&str> = preferred
+        let wanted: Vec<&str> = if preferred.is_empty() {
+            vec!["eng"]
+        } else {
+            preferred.iter().map(String::as_str).collect()
+        };
+        // Borrow the names from the entry, not from `preferred`, so the result lives with `self`.
+        let mut order: Vec<&str> = wanted
             .iter()
-            .filter_map(|p| available.iter().find(|l| **l == p.as_str()).copied())
+            .filter_map(|w| available.iter().find(|l| *l == w).copied())
             .collect();
-        let rest: Vec<&str> = available.iter().copied().filter(|l| !order.contains(l)).collect();
-        order.extend(rest);
-        let backbone = if available.contains(&"eng") {
+        if order.is_empty() {
+            order = if available.contains(&"eng") {
+                vec!["eng"]
+            } else {
+                available.first().copied().into_iter().collect()
+            };
+        }
+        let backbone = if order.contains(&"eng") {
             "eng"
         } else {
             order.first().copied().unwrap_or("eng")
@@ -260,13 +279,15 @@ mod tests {
         assert_eq!(g.meanings.len(), 2);
         assert_eq!(glosses(&g.meanings[0]), [("ger", "Hand"), ("eng", "hand; arm")]);
         assert_eq!(glosses(&g.meanings[1]), [("ger", "Griff"), ("eng", "handle")]);
+        assert!(g.blocks.is_empty()); // Dutch is not asked for (#54)
+        let g = e.grouped(&pref(&["dut", "eng"]));
         assert_eq!(g.blocks.len(), 1);
         assert_eq!(g.blocks[0].lang, "dut");
         assert_eq!(g.blocks[0].senses, [&e.senses[4]]);
     }
 
     #[test]
-    fn blocks_follow_the_preferred_order_then_the_entry_order() {
+    fn only_the_preferred_languages_show() {
         let e = entry(vec![
             sense("eng", &["cat"]),
             sense("fre", &["chat"]),
@@ -278,7 +299,18 @@ mod tests {
         assert_eq!(g.meanings.len(), 1);
         assert_eq!(glosses(&g.meanings[0]), [("eng", "cat")]);
         let langs: Vec<&str> = g.blocks.iter().map(|b| b.lang).collect();
-        assert_eq!(langs, ["dut", "fre"]);
+        assert_eq!(langs, ["dut"]); // French stays out
+        // No preference: English alone. None of them available: English, else anything.
+        assert_eq!(glosses(&e.grouped(&[]).meanings[0]), [("eng", "cat")]);
+        assert!(e.grouped(&[]).blocks.is_empty());
+        let g = e.grouped(&pref(&["hun"]));
+        assert_eq!(glosses(&g.meanings[0]), [("eng", "cat")]);
+        let only_french = entry(vec![sense("fre", &["chat"])]);
+        assert_eq!(
+            glosses(&only_french.grouped(&pref(&["hun"])).meanings[0]),
+            [("fre", "chat")]
+        );
+        assert_eq!(only_french.summary(&pref(&["hun"])), "chat");
     }
 
     #[test]
@@ -302,10 +334,14 @@ mod tests {
             sense("fre", &["main"]),
             sense("fre", &["poignée"]),
         ]);
-        let g = e.grouped(&pref(&["fre", "eng"]));
+        let g = e.grouped(&pref(&["fre", "ger"]));
         assert_eq!(g.meanings.len(), 2);
         assert_eq!(glosses(&g.meanings[0]), [("fre", "main"), ("ger", "Hand")]);
         assert!(g.blocks.is_empty());
+        assert_eq!(
+            glosses(&e.grouped(&pref(&["fre", "eng"])).meanings[0]),
+            [("fre", "main")]
+        );
         assert!(entry(Vec::new()).grouped(&pref(&["eng"])).meanings.is_empty());
     }
 }

@@ -43,14 +43,13 @@ pub fn language(jmdict: &str) -> &str {
     }
 }
 
-/// The preferred gloss languages as Tatoeba codes, English added last when it is missing so a
-/// sentence always has a translation to show.
+/// The preferred gloss languages as Tatoeba codes; English when the list is empty. A sentence
+/// with none of them still shows its first translation (see `Database::attach_translations`).
 pub fn languages(preferred: &[String]) -> Vec<String> {
-    let mut out: Vec<String> = preferred.iter().map(|l| language(l).to_string()).collect();
-    if !out.iter().any(|l| l == "eng") {
-        out.push("eng".into());
+    if preferred.is_empty() {
+        return vec!["eng".into()];
     }
-    out
+    preferred.iter().map(|l| language(l).to_string()).collect()
 }
 
 /// Opens one export file for line reading: bzip2'd or plain, a tar with one member or bare.
@@ -229,7 +228,8 @@ mod tests {
 
     #[test]
     fn language_codes_are_mapped() {
-        assert_eq!(languages(&["ger".to_string()]), ["deu", "eng"]);
+        assert_eq!(languages(&["ger".to_string()]), ["deu"]);
+        assert_eq!(languages(&[]), ["eng"]);
         assert_eq!(languages(&["eng".to_string(), "fre".to_string()]), ["eng", "fra"]);
     }
 
