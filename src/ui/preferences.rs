@@ -1,47 +1,21 @@
+//! The preferences dialog.
+//!
+//! There is deliberately no colour-scheme switch. The app follows the system: `adw::StyleManager`
+//! reads the preference from the settings portal (or GSettings / `gtk-application-prefer-dark-theme`
+//! where there is no portal). A per-app "force light" could never win anyway: GTK loads the user's
+//! own `~/.config/gtk-4.0/gtk.css` above every application style provider, and desktops such as
+//! Hyprland with Matugen push their whole palette through that file (issue #1).
+
 use std::rc::Rc;
 
 use adw::prelude::*;
 
 use super::window::Window;
-use crate::config::Config;
-
-const SCHEMES: [(&str, adw::ColorScheme); 3] = [
-    ("system", adw::ColorScheme::Default),
-    ("light", adw::ColorScheme::ForceLight),
-    ("dark", adw::ColorScheme::ForceDark),
-];
-
-pub fn apply_color_scheme(config: &Config) {
-    let scheme = SCHEMES
-        .iter()
-        .find(|(name, _)| *name == config.color_scheme)
-        .map_or(adw::ColorScheme::Default, |(_, s)| *s);
-    adw::StyleManager::default().set_color_scheme(scheme);
-}
 
 pub fn show(win: &Rc<Window>) {
     let dialog = adw::PreferencesDialog::builder().title("Preferences").build();
     let page = adw::PreferencesPage::new();
     dialog.add(&page);
-
-    let look = adw::PreferencesGroup::builder().title("Appearance").build();
-    page.add(&look);
-    let scheme = adw::ComboRow::builder()
-        .title("Colour scheme")
-        .model(&gtk::StringList::new(&["Follow system", "Light", "Dark"]))
-        .build();
-    let current = win.config().borrow().color_scheme.clone();
-    scheme.set_selected(SCHEMES.iter().position(|(n, _)| *n == current).unwrap_or(0) as u32);
-    scheme.connect_selected_notify({
-        let win = win.clone();
-        move |row| {
-            let mut cfg = win.config().borrow_mut();
-            cfg.color_scheme = SCHEMES[row.selected() as usize].0.to_string();
-            cfg.save();
-            apply_color_scheme(&cfg);
-        }
-    });
-    look.add(&scheme);
 
     let glosses = adw::PreferencesGroup::builder()
         .title("Glosses")

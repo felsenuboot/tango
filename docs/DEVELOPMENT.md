@@ -21,7 +21,7 @@ cargo run                                    # dev build against the real config
 | `src/ui/window.rs` | search entry, result list, split view, import flow |
 | `src/ui/entry_view.rs` | renders one entry |
 | `src/ui/import_dialog.rs` | progress dialog + worker thread + channel |
-| `src/ui/preferences.rs` | preferences dialog, colour scheme |
+| `src/ui/preferences.rs` | preferences dialog |
 | `src/config.rs` | JSON config in `~/.config/tango`, XDG paths |
 | `src/autopilot.rs` | scripted UI driving (below) |
 | `tests/fixtures/` | a six-entry JMdict sample the unit tests use |
@@ -49,6 +49,14 @@ TANGO_AUTOPILOT="sleep 2; import $HOME/.cache/tango/JMdict.gz; sleep 40; search 
 WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 \
   cage -- sh -c './target/release/tango & sleep 49; grim shot.png; kill %1'
 ```
+
+`XDG_CONFIG_HOME` is redirected on purpose: GTK loads `~/.config/gtk-4.0/gtk.css`
+above every application style provider, and on a desktop that generates that file
+(Hyprland with Matugen, say) it would repaint the screenshots in the desktop's
+palette. That is also why the app has no colour-scheme setting of its own: it
+follows the system, which on such a desktop means portal for light/dark plus the
+user CSS for the palette. The `theme light|dark` autopilot step forces a scheme
+just for a screenshot run.
 
 ## Reading the code as a Rust newcomer
 

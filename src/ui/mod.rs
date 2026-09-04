@@ -68,7 +68,6 @@ pub fn activate(app: &adw::Application) {
         return;
     }
     let config = Rc::new(RefCell::new(Config::load()));
-    preferences::apply_color_scheme(&config.borrow());
     let db_path = database_path();
     let db = match Database::open(&db_path) {
         Ok(db) => Rc::new(db),

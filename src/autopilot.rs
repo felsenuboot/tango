@@ -7,7 +7,8 @@
 //!   search <text>        type into the search entry
 //!   select <index>       select the result row at that index
 //!   import <path>        import a JMdict file (plain or .gz) into the database, in the background
-//!   theme light|dark|system   switch the colour scheme for this run
+//!   theme light|dark|system   force a colour scheme for this run (for screenshots; the app
+//!                        itself always follows the system, see ui/preferences.rs)
 //!   preferences | about  open that dialog
 //!   resize <w> <h>       resize the main window
 //!   state                log the search text, result count and selected entry
@@ -52,9 +53,12 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         "select" => win.select_result(arg.parse().unwrap_or(0)),
         "import" => win.import_file(PathBuf::from(arg)),
         "theme" => {
-            let mut cfg = win.config().borrow_mut();
-            cfg.color_scheme = arg.to_string();
-            crate::ui::preferences::apply_color_scheme(&cfg);
+            let scheme = match arg {
+                "light" => adw::ColorScheme::ForceLight,
+                "dark" => adw::ColorScheme::ForceDark,
+                _ => adw::ColorScheme::Default,
+            };
+            adw::StyleManager::default().set_color_scheme(scheme);
         }
         "preferences" => app.activate_action("preferences", None),
         "about" => app.activate_action("about", None),

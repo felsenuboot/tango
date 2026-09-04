@@ -18,6 +18,10 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   a low-priority option for other distros.
 - **JMdict ships German/Dutch/French glosses as separate senses.** Merging
   them per meaning is the first roadmap item.
+- **Colour scheme follows the system, no per-app switch (issue #1).** Felix's
+  desktop (Hyprland, Matugen) writes `~/.config/gtk-4.0/colors.css`, which GTK
+  loads above app CSS, so an app-level "Light" can never render light there.
+  Do not add the switch back; `theme` in the autopilot exists for screenshots.
 
 ## Working here
 
