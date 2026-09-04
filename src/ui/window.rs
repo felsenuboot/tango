@@ -273,8 +273,27 @@ impl Window {
         let toasts = adw::ToastOverlay::new();
         toasts.set_child(Some(&split));
         win.set_content(Some(&toasts));
+        // The wide switcher (icon and label side by side) needs about 330 px for its three
+        // pages; the sidebar is 32 % of the window down to 280 px, so below about 1030 px the
+        // labels would be cut to "Se…". The narrow policy stacks the label under the icon.
+        // The two conditions do not overlap, so it does not matter which one libadwaita picks
+        // when several match; the collapsed layout repeats the setter.
+        let narrow = adw::Breakpoint::new(
+            adw::BreakpointCondition::parse("max-width: 1030sp and min-width: 641sp").unwrap(),
+        );
+        narrow.add_setter(
+            &switcher,
+            "policy",
+            Some(&adw::ViewSwitcherPolicy::Narrow.to_value()),
+        );
+        win.add_breakpoint(narrow);
         let breakpoint = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 640sp").unwrap());
         breakpoint.add_setter(&split, "collapsed", Some(&true.to_value()));
+        breakpoint.add_setter(
+            &switcher,
+            "policy",
+            Some(&adw::ViewSwitcherPolicy::Narrow.to_value()),
+        );
         win.add_breakpoint(breakpoint);
 
         let this = Rc::new(Self {
