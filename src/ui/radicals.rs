@@ -52,19 +52,22 @@ impl RadicalsPage {
             .halign(gtk::Align::End)
             .hexpand(true)
             .build();
+        // 12 px page margins (GNOME HIG); the grids' flat cells add their own 2 px.
         let controls = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(6)
-            .margin_start(6)
-            .margin_end(6)
-            .margin_top(6)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(12)
             .build();
         controls.append(&strokes);
         controls.append(&clear);
         controls.append(&hide);
         let summary = gtk::Label::builder()
             .xalign(0.0)
-            .margin_start(6)
+            .margin_start(12)
+            .margin_end(12)
+            .wrap(true)
             .css_classes(["dim-label", "caption"])
             .build();
         let results = gtk::FlowBox::builder()
@@ -74,8 +77,8 @@ impl RadicalsPage {
             .max_children_per_line(20)
             .row_spacing(2)
             .column_spacing(2)
-            .margin_start(6)
-            .margin_end(6)
+            .margin_start(12)
+            .margin_end(12)
             .build();
         let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
         column.append(&controls);
@@ -181,7 +184,7 @@ impl RadicalsPage {
                 let header = gtk::Label::builder()
                     .label(format!("{strokes}"))
                     .xalign(0.0)
-                    .margin_start(6)
+                    .margin_start(12)
                     .tooltip_text("Radicals with this many strokes")
                     .css_classes(["dim-label", "caption"])
                     .build();
@@ -193,8 +196,8 @@ impl RadicalsPage {
                     .max_children_per_line(20)
                     .row_spacing(2)
                     .column_spacing(2)
-                    .margin_start(6)
-                    .margin_end(6)
+                    .margin_start(12)
+                    .margin_end(12)
                     .build();
                 self.radicals_box.append(&f);
                 self.groups.borrow_mut().push((header, f.clone()));

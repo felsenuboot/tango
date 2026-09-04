@@ -132,17 +132,21 @@ impl Window {
             .vexpand(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
+        // GNOME HIG: 12 px between content and the edges of its container; the list rows below
+        // bring their own padding, so the entry keeps only 6 px towards them.
         let search_box = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
-            .margin_start(6)
-            .margin_end(6)
-            .margin_top(6)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(12)
             .margin_bottom(6)
             .build();
         search_box.append(&search);
+        // A flat button pads its label by about 10 px, so 8 px lines its text up with the
+        // search entry's (12 px margin + 8 px inner padding).
         let kanji_hint = gtk::Button::builder()
             .halign(gtk::Align::Start)
-            .margin_start(6)
+            .margin_start(8)
             .margin_bottom(6)
             .css_classes(["flat"])
             .visible(false)
@@ -688,8 +692,8 @@ impl Window {
             .spacing(6)
             .margin_top(6)
             .margin_bottom(6)
-            .margin_start(6)
-            .margin_end(6)
+            .margin_start(12)
+            .margin_end(12)
             .build();
         let lists = self.user.lists().unwrap_or_default();
         let member = self.user.lists_with(&entry.source, entry.id).unwrap_or_default();
