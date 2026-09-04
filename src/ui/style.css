@@ -8,6 +8,9 @@
   background-color: alpha(currentColor, 0.12);
 }
 .tango-pitch { font-size: 1.3em; color: @accent_color; }
+/* Example sentences under an entry, and the sentence page. */
+.tango-sentence { font-size: 1.1em; }
+.tango-sentence-large { font-size: 1.7em; font-weight: 300; }
 .tango-kanji-literal { font-size: 6em; font-weight: 300; }
 .tango-radical, .tango-kanji-cell { padding: 2px; min-width: 0; min-height: 0; font-size: 1.4em; }
 /* Kanji in a headword are buttons that look like the text around them. */

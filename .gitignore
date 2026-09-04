@@ -5,3 +5,4 @@
 /packaging/arch/tango/
 /packaging/arch/*.pkg.tar*
 /packaging/arch/*.log
+log.txt

@@ -13,11 +13,13 @@ use super::import_dialog;
 use super::kanji_view::KanjiView;
 use super::lists::{ListsPage, ask_name};
 use super::radicals::RadicalsPage;
+use super::sentence_view::SentenceView;
 use super::thousands;
 use crate::APP_NAME;
 use crate::config::{Config, cache_dir};
 use crate::dict::sources::{self, Source};
-use crate::model::Entry;
+use crate::dict::tatoeba;
+use crate::model::{Entry, Sentence, SentenceWord};
 use crate::search::{self, Hit};
 use crate::store::db::Database;
 use crate::store::export::TakobotoRow;
@@ -26,6 +28,9 @@ use crate::store::user::{ListEntry, UserDb};
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 const RESULT_LIMIT: usize = 100;
+/// Example sentences shown under an entry at first, and after "Show all".
+const EXAMPLES_FIRST: usize = 5;
+const EXAMPLES_ALL: usize = 100;
 
 pub struct Window {
     pub win: adw::ApplicationWindow,
@@ -54,13 +59,18 @@ pub struct Window {
     toasts: adw::ToastOverlay,
     entry_view: EntryView,
     kanji_view: Rc<KanjiView>,
+    sentence_view: SentenceView,
     /// Back from the kanji page to the entry.
     back: gtk::Button,
     /// "Kanji 猫" under the search box when the query is one kanji with data behind it.
     kanji_hint: gtk::Button,
     /// The results behind the rows, by row index.
     found: RefCell<Vec<Hit>>,
+    /// The rows of a `#sentences` search instead; `found` is empty then.
+    found_sentences: RefCell<Vec<Sentence>>,
     current: RefCell<Option<Entry>>,
+    /// How many example sentences the entry shows: a few, or all after "Show all".
+    example_limit: Cell<usize>,
     search_timer: Cell<Option<glib::SourceId>>,
 }
 
@@ -160,6 +170,7 @@ impl Window {
         // -- content: the entry, the kanji page, or one of the empty states
         let entry_view = EntryView::new();
         let kanji_view = KanjiView::new();
+        let sentence_view = SentenceView::new();
         let empty = adw::StatusPage::builder()
             .title("Tango")
             .description("Look up a word in Japanese, English or German.")
@@ -199,6 +210,7 @@ impl Window {
         stack.add_named(&empty, Some("empty"));
         stack.add_named(entry_view.widget(), Some("entry"));
         stack.add_named(kanji_view.widget(), Some("kanji"));
+        stack.add_named(sentence_view.widget(), Some("sentence"));
         let content_header = adw::HeaderBar::new();
         let back = gtk::Button::builder()
             .icon_name("go-previous-symbolic")
@@ -272,10 +284,13 @@ impl Window {
             toasts,
             entry_view,
             kanji_view,
+            sentence_view,
             back,
             kanji_hint,
             found: RefCell::new(Vec::new()),
+            found_sentences: RefCell::new(Vec::new()),
             current: RefCell::new(None),
+            example_limit: Cell::new(EXAMPLES_FIRST),
             search_timer: Cell::new(None),
         });
 
@@ -301,6 +316,16 @@ impl Window {
             #[weak]
             this,
             move |entry| this.show_entry(entry.clone())
+        ));
+        this.sentence_view.connect_word(clone!(
+            #[weak]
+            this,
+            move |word| this.open_word(word)
+        ));
+        this.entry_view.connect_more(clone!(
+            #[weak]
+            this,
+            move || this.more_examples()
         ));
         this.back.connect_clicked(clone!(
             #[weak]
@@ -919,8 +944,23 @@ impl Window {
         (added, total)
     }
 
+    /// Autopilot: scrolls whatever the content pane shows to its top or its end.
+    pub fn scroll_content(&self, to_end: bool) {
+        let Some(child) = self.stack.visible_child() else {
+            return;
+        };
+        if let Some(scrolled) = child.downcast_ref::<gtk::ScrolledWindow>() {
+            let adjustment = scrolled.vadjustment();
+            adjustment.set_value(if to_end {
+                adjustment.upper() - adjustment.page_size()
+            } else {
+                0.0
+            });
+        }
+    }
+
     pub fn result_count(&self) -> usize {
-        self.found.borrow().len()
+        self.found.borrow().len() + self.found_sentences.borrow().len()
     }
 
     pub fn current_entry_id(&self) -> Option<i64> {
@@ -951,8 +991,15 @@ impl Window {
 
     fn run_search(&self, query: &str) {
         let enabled = self.config.borrow().enabled_sources();
+        let langs = self.config.borrow().gloss_languages.clone();
         let started = std::time::Instant::now();
-        let outcome = match search::run(&self.db, query, RESULT_LIMIT, &enabled) {
+        let outcome = match search::run(
+            &self.db,
+            query,
+            RESULT_LIMIT,
+            &enabled,
+            &tatoeba::languages(&langs),
+        ) {
             Ok(outcome) => outcome,
             Err(e) => {
                 log::error!("search failed: {e:#}");
@@ -960,16 +1007,20 @@ impl Window {
             }
         };
         log::debug!(
-            "search {query:?}: {} hits in {} ms",
+            "search {query:?}: {} hits, {} sentences in {} ms",
             outcome.hits.len(),
+            outcome.sentences.len(),
             started.elapsed().as_millis()
         );
-        let langs = self.config.borrow().gloss_languages.clone();
         self.no_results.set_description(outcome.hint.as_deref());
         self.update_kanji_hint(query);
-        let any = !outcome.hits.is_empty();
+        let any = !outcome.hits.is_empty() || !outcome.sentences.is_empty();
         self.results.remove_all();
         *self.found.borrow_mut() = outcome.hits;
+        *self.found_sentences.borrow_mut() = outcome.sentences;
+        for sentence in self.found_sentences.borrow().iter() {
+            self.results.append(&sentence_row(sentence));
+        }
         for hit in self.found.borrow().iter() {
             let listed = self
                 .user
@@ -991,22 +1042,99 @@ impl Window {
     }
 
     fn on_row_selected(&self, index: i32) {
+        let sentence = self.found_sentences.borrow().get(index as usize).cloned();
         let entry = self.found.borrow().get(index as usize).map(|h| h.entry.clone());
-        if let Some(entry) = entry {
+        if let Some(sentence) = sentence {
+            self.show_sentence(sentence);
+        } else if let Some(entry) = entry {
             self.show_entry(entry);
-            if self.split.is_collapsed() {
-                self.split.set_show_content(true);
-            }
+        } else {
+            return;
+        }
+        if self.split.is_collapsed() {
+            self.split.set_show_content(true);
         }
     }
 
     pub fn show_entry(&self, entry: Entry) {
-        let langs = self.config.borrow().gloss_languages.clone();
-        self.entry_view.show(&entry, &langs);
+        self.example_limit.set(EXAMPLES_FIRST);
+        self.render_entry(&entry);
         *self.current.borrow_mut() = Some(entry);
         self.stack.set_visible_child_name("entry");
         self.back.set_visible(false);
         self.refresh_star();
+    }
+
+    /// Fills the entry view: the entry, and its example sentences when Tatoeba is enabled.
+    fn render_entry(&self, entry: &Entry) {
+        let langs = self.config.borrow().gloss_languages.clone();
+        let enabled = self.config.borrow().enabled_sources();
+        let (examples, total) = if enabled.iter().any(|s| s == "tatoeba") {
+            self.db
+                .examples(entry, &tatoeba::languages(&langs), self.example_limit.get())
+                .unwrap_or_else(|e| {
+                    log::error!("examples for {}: {e:#}", entry.headword());
+                    (Vec::new(), 0)
+                })
+        } else {
+            (Vec::new(), 0)
+        };
+        self.entry_view.show(entry, &langs, &examples, total);
+    }
+
+    /// "Show all": the entry again with every example, scrolled to where it was.
+    fn more_examples(&self) {
+        let Some(entry) = self.current.borrow().clone() else {
+            return;
+        };
+        self.example_limit.set(EXAMPLES_ALL);
+        let adjustment = self.entry_view.widget().vadjustment();
+        let position = adjustment.value();
+        self.render_entry(&entry);
+        // The new height is known after the next layout pass, so the scroll position is restored
+        // from an idle callback, which runs after it.
+        glib::idle_add_local_once(move || adjustment.set_value(position));
+    }
+
+    // -- sentences --------------------------------------------------------------------------
+
+    /// The page for a sentence from a `#sentences` search.
+    fn show_sentence(&self, sentence: Sentence) {
+        let words = self.db.sentence_words(sentence.id).unwrap_or_else(|e| {
+            log::error!("words of sentence {}: {e:#}", sentence.id);
+            Vec::new()
+        });
+        self.sentence_view.show(&sentence, &words);
+        *self.current.borrow_mut() = None;
+        self.stack.set_visible_child_name("sentence");
+        self.back.set_visible(false);
+        self.refresh_star();
+    }
+
+    /// A word button on the sentence page: the entry the index names (by JMdict number, else by
+    /// headword and reading), or a search for the headword when it is not installed.
+    fn open_word(&self, word: &SentenceWord) {
+        let enabled = self.config.borrow().enabled_sources();
+        let mut found: Vec<Entry> = word
+            .seq
+            .and_then(|seq| self.db.get("jmdict", seq).ok().flatten())
+            .into_iter()
+            .collect();
+        if found.is_empty() {
+            found = self
+                .db
+                .lookup(std::slice::from_ref(&word.headword), &enabled, 10)
+                .unwrap_or_default();
+        }
+        let entry = found
+            .iter()
+            .find(|e| word.reading.as_ref().is_none_or(|r| e.readings.contains(r)))
+            .or(found.first())
+            .cloned();
+        match entry {
+            Some(entry) => self.show_entry(entry),
+            None => self.search.set_text(&word.headword),
+        }
     }
 
     // -- kanji ------------------------------------------------------------------------------
@@ -1187,6 +1315,20 @@ fn group_header(word: &str) -> gtk::Label {
         .margin_bottom(4)
         .css_classes(["heading"])
         .build()
+}
+
+/// A row of a `#sentences` search: the Japanese, and the first translation under it.
+fn sentence_row(sentence: &Sentence) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .activatable(true)
+        .title(glib::markup_escape_text(&sentence.text))
+        .title_lines(2)
+        .subtitle_lines(1)
+        .build();
+    if let Some((_, text)) = sentence.translations.first() {
+        row.set_subtitle(&glib::markup_escape_text(text));
+    }
+    row
 }
 
 fn result_row(hit: &Hit, langs: &[String], listed: bool) -> adw::ActionRow {

@@ -10,6 +10,7 @@ pub mod kanji_view;
 pub mod lists;
 pub mod preferences;
 pub mod radicals;
+pub mod sentence_view;
 pub mod strokes;
 pub mod theme;
 pub mod window;

@@ -15,7 +15,7 @@ pub mod romaji;
 
 use std::collections::HashSet;
 
-use crate::model::Entry;
+use crate::model::{Entry, Sentence};
 use crate::store::db::{Database, is_japanese};
 
 /// One result: the entry, and how the query led to it when that is not obvious.
@@ -32,6 +32,8 @@ pub struct Hit {
 #[derive(Debug, Default)]
 pub struct Outcome {
     pub hits: Vec<Hit>,
+    /// `#sentences`: example sentences instead of entries.
+    pub sentences: Vec<Sentence>,
     /// Why there may be nothing, e.g. an unknown `#tag`.
     pub hint: Option<String>,
 }
@@ -67,11 +69,39 @@ fn matches(entry: &Entry, tag: query::Tag) -> bool {
             .iter()
             .flat_map(|s| &s.misc)
             .any(|m| m.contains(part)),
+        query::Tag::Sentences => true,
     }
 }
 
-pub fn run(db: &Database, input: &str, limit: usize, sources: &[String]) -> anyhow::Result<Outcome> {
+/// `langs` are the Tatoeba language codes for the translations of sentence hits, preferred first.
+pub fn run(
+    db: &Database,
+    input: &str,
+    limit: usize,
+    sources: &[String],
+    langs: &[String],
+) -> anyhow::Result<Outcome> {
     let q = query::parse(input);
+    if q.sentences {
+        let available = sources.iter().any(|s| s == "tatoeba") && db.has_sentences()?;
+        let sentences = if q.text.is_empty() || !available {
+            Vec::new()
+        } else {
+            db.search_sentences(&q.text, langs, limit)?
+        };
+        let hint = if !available {
+            Some("Example sentences need Tatoeba, see the Dictionaries page in Preferences.".into())
+        } else if q.text.is_empty() {
+            Some("Type a word after #sentences to search the example sentences.".into())
+        } else {
+            None
+        };
+        return Ok(Outcome {
+            hits: Vec::new(),
+            sentences,
+            hint,
+        });
+    }
     let mut hits = Hits {
         list: Vec::new(),
         seen: HashSet::new(),
@@ -93,6 +123,7 @@ pub fn run(db: &Database, input: &str, limit: usize, sources: &[String]) -> anyh
     if text.is_empty() || sources.is_empty() {
         return Ok(Outcome {
             hits: hits.list,
+            sentences: Vec::new(),
             hint,
         });
     }
@@ -137,6 +168,7 @@ pub fn run(db: &Database, input: &str, limit: usize, sources: &[String]) -> anyh
     hits.list.truncate(limit);
     Ok(Outcome {
         hits: hits.list,
+        sentences: Vec::new(),
         hint,
     })
 }
@@ -269,23 +301,23 @@ mod tests {
     #[test]
     fn inflected_verb_finds_its_entry_with_the_chain() {
         let db = sample_db();
-        let hits = run(&db, "書きました", 10, &only_jmdict()).unwrap().hits;
+        let hits = run(&db, "書きました", 10, &only_jmdict(), &[]).unwrap().hits;
         assert_eq!(hits[0].entry.id, 1236120);
         assert_eq!(hits[0].note.as_deref(), Some("書きました → 書く: polite, past"));
-        let hits = run(&db, "書かない", 10, &only_jmdict()).unwrap().hits;
+        let hits = run(&db, "書かない", 10, &only_jmdict(), &[]).unwrap().hits;
         assert_eq!(hits[0].note.as_deref(), Some("書かない → 書く: negative"));
     }
 
     #[test]
     fn romaji_finds_readings_and_english_stays_a_gloss_search() {
         let db = sample_db();
-        let hits = run(&db, "neko", 10, &only_jmdict()).unwrap().hits;
+        let hits = run(&db, "neko", 10, &only_jmdict(), &[]).unwrap().hits;
         assert_eq!(hits[0].entry.id, 1467640);
         assert_eq!(hits[0].note, None);
-        let hits = run(&db, "kakimashita", 10, &only_jmdict()).unwrap().hits;
+        let hits = run(&db, "kakimashita", 10, &only_jmdict(), &[]).unwrap().hits;
         assert_eq!(hits[0].entry.id, 1236120);
         assert_eq!(hits[0].note.as_deref(), Some("かきました → 書く: polite, past"));
-        let hits = run(&db, "cat", 10, &only_jmdict()).unwrap().hits;
+        let hits = run(&db, "cat", 10, &only_jmdict(), &[]).unwrap().hits;
         assert_eq!(hits[0].entry.id, 1467640);
         assert!(hits.iter().all(|h| h.note.is_none()));
     }
@@ -294,9 +326,9 @@ mod tests {
     fn a_noun_is_not_offered_as_a_verb() {
         let db = sample_db();
         // 猫 + "る" would be a stem candidate; no ichidan entry 猫る exists, so nothing is added.
-        let hits = run(&db, "猫", 10, &only_jmdict()).unwrap().hits;
+        let hits = run(&db, "猫", 10, &only_jmdict(), &[]).unwrap().hits;
         assert!(hits.iter().all(|h| h.note.is_none()));
-        assert!(run(&db, "", 10, &only_jmdict()).unwrap().hits.is_empty());
+        assert!(run(&db, "", 10, &only_jmdict(), &[]).unwrap().hits.is_empty());
     }
 
     fn ids(hits: &[Hit]) -> Vec<i64> {
@@ -306,25 +338,25 @@ mod tests {
     #[test]
     fn tags_filter_and_unknown_tags_hint() {
         let db = sample_db();
-        let common = run(&db, "猫 #common", 10, &only_jmdict()).unwrap();
+        let common = run(&db, "猫 #common", 10, &only_jmdict(), &[]).unwrap();
         assert!(common.hits.iter().all(|h| h.entry.common));
         assert!(!common.hits.is_empty());
-        let verbs = run(&db, "#verb 書", 10, &only_jmdict()).unwrap().hits;
+        let verbs = run(&db, "#verb 書", 10, &only_jmdict(), &[]).unwrap().hits;
         assert_eq!(ids(&verbs), [1236120]);
         assert!(
-            run(&db, "#noun 書く", 10, &only_jmdict())
+            run(&db, "#noun 書く", 10, &only_jmdict(), &[])
                 .unwrap()
                 .hits
                 .is_empty()
         );
-        let kana = run(&db, "#kana cat", 10, &only_jmdict()).unwrap().hits;
+        let kana = run(&db, "#kana cat", 10, &only_jmdict(), &[]).unwrap().hits;
         assert!(kana.iter().all(|h| {
             h.entry
                 .senses
                 .iter()
                 .any(|s| s.misc.iter().any(|m| m.contains("kana")))
         }));
-        let unknown = run(&db, "#jlpt-n5 cat", 10, &only_jmdict()).unwrap();
+        let unknown = run(&db, "#jlpt-n5 cat", 10, &only_jmdict(), &[]).unwrap();
         assert!(
             unknown
                 .hint
@@ -339,22 +371,32 @@ mod tests {
     fn quotes_and_wildcards() {
         let db = sample_db();
         assert_eq!(
-            ids(&run(&db, "\"obvious\"", 10, &only_jmdict()).unwrap().hits),
+            ids(&run(&db, "\"obvious\"", 10, &only_jmdict(), &[]).unwrap().hits),
             [1000225]
         );
-        assert!(run(&db, "\"obvi\"", 10, &only_jmdict()).unwrap().hits.is_empty());
-        let exact = run(&db, "\"猫\"", 10, &only_jmdict()).unwrap().hits;
+        assert!(
+            run(&db, "\"obvi\"", 10, &only_jmdict(), &[])
+                .unwrap()
+                .hits
+                .is_empty()
+        );
+        let exact = run(&db, "\"猫\"", 10, &only_jmdict(), &[]).unwrap().hits;
         assert_eq!(exact[0].entry.id, 1467640);
         assert!(exact.iter().all(|h| h.entry.kanji.iter().any(|k| k == "猫")));
-        assert_eq!(ids(&run(&db, "猫?", 10, &only_jmdict()).unwrap().hits), [2000002]);
-        let wild = run(&db, "c?t", 10, &only_jmdict()).unwrap().hits;
+        assert_eq!(
+            ids(&run(&db, "猫?", 10, &only_jmdict(), &[]).unwrap().hits),
+            [2000002]
+        );
+        let wild = run(&db, "c?t", 10, &only_jmdict(), &[]).unwrap().hits;
         assert!(wild.iter().any(|h| h.entry.id == 1467640)); // "cat" inside a gloss
     }
 
     #[test]
     fn a_sentence_is_cut_into_words_with_groups() {
         let db = sample_db();
-        let hits = run(&db, "猫背を書きました", 20, &only_jmdict()).unwrap().hits;
+        let hits = run(&db, "猫背を書きました", 20, &only_jmdict(), &[])
+            .unwrap()
+            .hits;
         let groups: Vec<&str> = hits.iter().filter_map(|h| h.group.as_deref()).collect();
         assert_eq!(groups, ["猫背", "書きました"]); // を is not in the fixture, so it is skipped
         assert_eq!(ids(&hits), [2000002, 1236120]);

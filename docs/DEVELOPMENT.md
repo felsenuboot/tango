@@ -227,8 +227,8 @@ favourites, and `XDG_CONFIG_HOME` pointing at a config with
 into `data/screenshots/`; the GIF is built from the same files:
 
 ```
-magick -delay 280 -loop 0 entry.png deinflect.png sentence.png wadoku.png kanji.png \
-  radicals.png lists.png dictionaries.png light.png -resize 960x540 -layers Optimize tour.gif
+magick -delay 280 -loop 0 entry.png deinflect.png sentence.png wadoku.png examples.png \
+  kanji.png radicals.png lists.png dictionaries.png light.png -resize 960x540 -layers Optimize tour.gif
 ```
 
 ## Hyprland and popups

@@ -19,6 +19,8 @@ pub struct Source {
     pub url: &'static str,
     /// File name in the cache directory.
     pub filename: &'static str,
+    /// Further `(url, file name)` pairs a source made of several files needs next to `filename`.
+    pub extra_files: &'static [(&'static str, &'static str)],
     pub licence: &'static str,
     pub licence_url: &'static str,
     /// Rough download size, for the status texts.
@@ -36,6 +38,7 @@ pub const JMDICT: Source = Source {
     description: "Japanese–English, with German, Dutch, French and other glosses, by the EDRDG.",
     url: "https://www.edrdg.org/pub/Nihongo/JMdict.gz",
     filename: "JMdict.gz",
+    extra_files: &[],
     licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
     size_mb: 22,
@@ -50,6 +53,7 @@ pub const WADOKU: Source = Source {
     description: "Japanese–German with pitch accent, by wadoku.de.",
     url: "https://www.wadoku.de/wiki/display/WAD/Downloads+und+Links",
     filename: "wadoku-xml.tar.xz",
+    extra_files: &[],
     licence: "Wadoku dictionary licence (free software with attribution)",
     licence_url: "https://www.wadoku.de/wiki/display/WAD/W%C3%B6rterbuch+Lizenz",
     size_mb: 25,
@@ -63,6 +67,7 @@ pub const KANJIDIC: Source = Source {
     description: "Kanji: readings, meanings, stroke count, grade, JLPT level and frequency, by the EDRDG.",
     url: "https://www.edrdg.org/kanjidic/kanjidic2.xml.gz",
     filename: "kanjidic2.xml.gz",
+    extra_files: &[],
     licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
     size_mb: 2,
@@ -77,6 +82,7 @@ pub const KANJIVG: Source = Source {
     description: "Stroke order diagrams for 6,700 kanji, by Ulrich Apel.",
     url: "https://api.github.com/repos/KanjiVG/kanjivg/releases/latest",
     filename: "kanjivg.xml.gz",
+    extra_files: &[],
     licence: "Creative Commons Attribution-ShareAlike 3.0",
     licence_url: "https://kanjivg.tagaini.net/",
     size_mb: 4,
@@ -90,15 +96,53 @@ pub const RADKFILE: Source = Source {
     description: "The radical index for looking kanji up by their parts, by the EDRDG.",
     url: "https://www.edrdg.org/pub/Nihongo/kradzip.zip",
     filename: "kradzip.zip",
+    extra_files: &[],
     licence: "EDRDG licence (Creative Commons Attribution-ShareAlike 4.0)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
     size_mb: 1,
     latest: None,
 };
 
+/// Tatoeba example sentences: the Japanese ones, their English and German translations, the
+/// links between them, and the Tanaka corpus index that ties sentences to JMdict words. The
+/// exports are rebuilt weekly under fixed names, so the download date is the version.
+pub const TATOEBA: Source = Source {
+    id: "tatoeba",
+    name: "Tatoeba",
+    description: "Example sentences with English and German translations, by the Tatoeba project.",
+    url: "https://downloads.tatoeba.org/exports/per_language/jpn/jpn_sentences.tsv.bz2",
+    filename: "jpn_sentences.tsv.bz2",
+    extra_files: &[
+        (
+            "https://downloads.tatoeba.org/exports/jpn_indices.tar.bz2",
+            "jpn_indices.tar.bz2",
+        ),
+        (
+            "https://downloads.tatoeba.org/exports/per_language/jpn/jpn-eng_links.tsv.bz2",
+            "jpn-eng_links.tsv.bz2",
+        ),
+        (
+            "https://downloads.tatoeba.org/exports/per_language/eng/eng_sentences.tsv.bz2",
+            "eng_sentences.tsv.bz2",
+        ),
+        (
+            "https://downloads.tatoeba.org/exports/per_language/jpn/jpn-deu_links.tsv.bz2",
+            "jpn-deu_links.tsv.bz2",
+        ),
+        (
+            "https://downloads.tatoeba.org/exports/per_language/deu/deu_sentences.tsv.bz2",
+            "deu_sentences.tsv.bz2",
+        ),
+    ],
+    licence: "Creative Commons Attribution 2.0 France",
+    licence_url: "https://tatoeba.org/en/terms_of_use",
+    size_mb: 45,
+    latest: None,
+};
+
 /// Every source, in the default search order. The kanji sources hold no entries; they are
 /// listed so the Dictionaries page manages them like the others.
-pub const SOURCES: &[&Source] = &[&JMDICT, &WADOKU, &KANJIDIC, &KANJIVG, &RADKFILE];
+pub const SOURCES: &[&Source] = &[&JMDICT, &WADOKU, &KANJIDIC, &KANJIVG, &RADKFILE, &TATOEBA];
 
 pub fn by_id(id: &str) -> Option<&'static Source> {
     SOURCES.iter().find(|s| s.id == id).copied()
@@ -174,5 +218,13 @@ mod tests {
             );
         }
         assert!(by_id("nope").is_none());
+    }
+
+    #[test]
+    fn tatoeba_files_match_the_reader() {
+        let names: Vec<&str> = std::iter::once(TATOEBA.filename)
+            .chain(TATOEBA.extra_files.iter().map(|(_, name)| *name))
+            .collect();
+        assert_eq!(names, crate::dict::tatoeba::FILES);
     }
 }

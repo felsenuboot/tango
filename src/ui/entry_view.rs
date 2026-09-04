@@ -1,14 +1,15 @@
 //! One dictionary entry: headword, readings, then the senses with their glosses per language.
 
 use adw::prelude::*;
+use gtk::glib;
 
 use crate::dict::sources;
-use crate::model::{Entry, LanguageBlock, Sense};
+use crate::model::{Entry, LanguageBlock, Sense, Sentence};
 
 fn lang_name(lang: &str) -> String {
     match lang {
         "eng" => "English",
-        "ger" => "German",
+        "ger" | "deu" => "German",
         "dut" => "Dutch",
         "fre" => "French",
         "rus" => "Russian",
@@ -24,9 +25,9 @@ fn lang_name(lang: &str) -> String {
 pub fn lang_label(lang: &str) -> String {
     match lang {
         "eng" => "EN",
-        "ger" => "DE",
-        "dut" => "NL",
-        "fre" => "FR",
+        "ger" | "deu" => "DE",
+        "dut" | "nld" => "NL",
+        "fre" | "fra" => "FR",
         "rus" => "RU",
         "spa" => "ES",
         "hun" => "HU",
@@ -48,12 +49,15 @@ fn label(text: &str, css: &[&str]) -> gtk::Label {
 }
 
 type KanjiCallback = std::rc::Rc<std::cell::RefCell<Option<Box<dyn Fn(char)>>>>;
+type MoreCallback = std::rc::Rc<std::cell::RefCell<Option<Box<dyn Fn()>>>>;
 
 pub struct EntryView {
     root: gtk::ScrolledWindow,
     body: gtk::Box,
     /// What happens when a kanji in the headword is clicked.
     on_kanji: KanjiCallback,
+    /// "Show all N" under the example sentences.
+    on_more: MoreCallback,
 }
 
 pub fn is_kanji(c: char) -> bool {
@@ -80,7 +84,12 @@ impl EntryView {
             root,
             body,
             on_kanji: Default::default(),
+            on_more: Default::default(),
         }
+    }
+
+    pub fn connect_more(&self, f: impl Fn() + 'static) {
+        *self.on_more.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn widget(&self) -> &gtk::ScrolledWindow {
@@ -125,7 +134,8 @@ impl EntryView {
     }
 
     /// `preferred` is the configured language order; languages the entry has beyond that follow.
-    pub fn show(&self, entry: &Entry, preferred: &[String]) {
+    /// Renders `entry`; `examples` are its first example sentences out of `total`.
+    pub fn show(&self, entry: &Entry, preferred: &[String], examples: &[Sentence], total: usize) {
         while let Some(child) = self.body.first_child() {
             self.body.remove(&child);
         }
@@ -187,7 +197,89 @@ impl EntryView {
                 self.body.append(&language_block(block));
             }
         }
+        if !examples.is_empty() {
+            self.body
+                .append(&examples_section(examples, total, &self.on_more));
+        }
         self.root.vadjustment().set_value(0.0);
+    }
+}
+
+/// The example sentences under the meanings, and "Show all N" when there are more.
+fn examples_section(sentences: &[Sentence], total: usize, on_more: &MoreCallback) -> gtk::Box {
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    let title = gtk::Label::builder()
+        .label(if total == 1 {
+            "Example sentence".to_string()
+        } else {
+            format!("{} example sentences", super::thousands(total as i64))
+        })
+        .xalign(0.0)
+        .css_classes(["heading"])
+        .build();
+    column.append(&title);
+    for s in sentences {
+        column.append(&sentence_block(s));
+    }
+    if total > sentences.len() {
+        let more = gtk::Button::builder()
+            .label(format!("Show all {total}"))
+            .halign(gtk::Align::Start)
+            .css_classes(["flat"])
+            .build();
+        let on_more = on_more.clone();
+        more.connect_clicked(move |_| {
+            if let Some(f) = on_more.borrow().as_ref() {
+                f();
+            }
+        });
+        column.append(&more);
+    }
+    column
+}
+
+/// One sentence: the Japanese with the looked-up word in bold, then a line per translation.
+pub fn sentence_block(s: &Sentence) -> gtk::Box {
+    let block = gtk::Box::new(gtk::Orientation::Vertical, 3);
+    let japanese = gtk::Label::builder()
+        .use_markup(true)
+        .label(highlight(&s.text, s.surface.as_deref()))
+        .xalign(0.0)
+        .wrap(true)
+        .selectable(true)
+        .css_classes(["tango-sentence"])
+        .build();
+    block.append(&japanese);
+    for (lang, text) in &s.translations {
+        let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        line.append(&lang_chip(lang));
+        let translation = label(text, &["dim-label"]);
+        translation.set_hexpand(true);
+        line.append(&translation);
+        block.append(&line);
+    }
+    block
+}
+
+/// The "EN" / "DE" chip in front of a gloss or a translation.
+pub fn lang_chip(lang: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .label(lang_label(lang))
+        .valign(gtk::Align::Start)
+        .margin_top(3)
+        .css_classes(["tango-lang"])
+        .build()
+}
+
+/// `text` as Pango markup with the first occurrence of `surface` in bold.
+pub fn highlight(text: &str, surface: Option<&str>) -> String {
+    let escaped = glib::markup_escape_text(text).to_string();
+    match surface.filter(|s| !s.is_empty() && text.contains(s)) {
+        Some(s) => {
+            let word = glib::markup_escape_text(s).to_string();
+            escaped.replacen(&word, &format!("<b>{word}</b>"), 1)
+        }
+        None => escaped,
     }
 }
 

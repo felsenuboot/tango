@@ -20,6 +20,7 @@
 //!   menustate            log the menu button's position and the popover's scroll metrics
 //!   resize <w> <h>       resize the main window
 //!   fullscreen | maximize | unfullscreen   change the window state
+//!   scroll top|end       scroll the content pane (entry, kanji or sentence page)
 //!   state                log the search text, result count and selected entry
 //!   quit                 exit the application
 
@@ -120,6 +121,7 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
                 win.win.set_default_size(w, h);
             }
         }
+        "scroll" => win.scroll_content(arg == "end"),
         "state" => log::info!(
             "autopilot state: search={:?} results={} selected={:?}",
             win.search.text(),

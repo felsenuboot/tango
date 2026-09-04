@@ -1,9 +1,10 @@
 //! The dictionary database: one SQLite file, plain SQL.
 //!
-//! Schema v5: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
+//! Schema v6: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
 //! source and the source's own number, with its pitch accent), `forms` (kanji and readings),
 //! `senses`, `glosses`, the kanji tables (`kanji` from KANJIDIC2, `kanji_strokes` from KanjiVG,
-//! `kanji_radicals` from RADKFILE), and
+//! `kanji_radicals` from RADKFILE), the Tatoeba tables (`sentences`, `sentence_links`,
+//! `sentence_words` and the trigram index `sentence_fts`), and
 //! `gloss_fts`, an FTS5 index over the gloss text. Headwords and readings are prefix searches on
 //! the `forms_text` index; glosses go through FTS5 (a LIKE scan took half a second per keystroke
 //! on the full JMdict, FTS5 answers in a few milliseconds).
@@ -21,9 +22,9 @@ use anyhow::Context;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
-use crate::model::{Entry, Gloss, Kanji, Radical, Sense, Strokes};
+use crate::model::{Entry, Gloss, Kanji, Radical, Sense, Sentence, SentenceWord, Strokes};
 
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -84,6 +85,35 @@ CREATE INDEX IF NOT EXISTS kanji_radicals_literal ON kanji_radicals(literal);
 -- remove_diacritics 2: \"uber\" finds \"über\".
 CREATE VIRTUAL TABLE IF NOT EXISTS gloss_fts USING fts5(
     text, content='glosses', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2'
+);
+-- Tatoeba: Japanese sentences and their translations in one table, the pairs in `sentence_links`,
+-- and per Japanese sentence the JMdict words of the Tanaka corpus index. The trigram index finds
+-- substrings, which is what a search in text without spaces needs.
+CREATE TABLE IF NOT EXISTS sentences (
+    id INTEGER PRIMARY KEY,           -- Tatoeba's number
+    lang TEXT NOT NULL,               -- ISO 639-3: jpn, eng, deu
+    text TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sentence_links (
+    jpn INTEGER NOT NULL,
+    other INTEGER NOT NULL,
+    PRIMARY KEY (jpn, other)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS sentence_links_other ON sentence_links(other);
+CREATE TABLE IF NOT EXISTS sentence_words (
+    sentence INTEGER NOT NULL,
+    headword TEXT NOT NULL,
+    reading TEXT,
+    sense INTEGER,
+    seq INTEGER,                      -- JMdict ent_seq when the index gives one
+    surface TEXT,
+    good INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS sentence_words_headword ON sentence_words(headword);
+CREATE INDEX IF NOT EXISTS sentence_words_seq ON sentence_words(seq);
+CREATE INDEX IF NOT EXISTS sentence_words_sentence ON sentence_words(sentence);
+CREATE VIRTUAL TABLE IF NOT EXISTS sentence_fts USING fts5(
+    text, content='sentences', content_rowid='id', tokenize='trigram'
 );
 CREATE INDEX IF NOT EXISTS entries_source ON entries(source);
 CREATE INDEX IF NOT EXISTS forms_text ON forms(text);
@@ -174,7 +204,10 @@ pub struct Database {
 impl Database {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
-        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
+        // A second writer (two import jobs, say) waits up to five seconds instead of failing at once.
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;",
+        )?;
         let db = Self { conn };
         db.prepare_schema()?;
         Ok(db)
@@ -322,16 +355,20 @@ impl Database {
     }
 
     /// Drops a source and, through the cascades, its entries, forms, senses and glosses; the
-    /// kanji sources own a table each instead.
+    /// kanji and sentence sources own their tables instead.
     pub fn remove_source(&self, id: &str) -> anyhow::Result<()> {
-        let table = match id {
-            "kanjidic" => Some("kanji"),
-            "kanjivg" => Some("kanji_strokes"),
-            "radkfile" => Some("kanji_radicals"),
-            _ => None,
+        let tables: &[&str] = match id {
+            "kanjidic" => &["kanji"],
+            "kanjivg" => &["kanji_strokes"],
+            "radkfile" => &["kanji_radicals"],
+            "tatoeba" => &["sentence_words", "sentence_links", "sentences"],
+            _ => &[],
         };
-        if let Some(table) = table {
+        for table in tables {
             self.conn.execute_batch(&format!("DELETE FROM {table}"))?;
+        }
+        if id == "tatoeba" {
+            self.rebuild_sentence_index()?;
         }
         self.conn
             .execute("DELETE FROM sources WHERE id = ?1", params![id])?;
@@ -552,6 +589,227 @@ impl Database {
             .conn
             .query_row("SELECT count(*) FROM kanji", [], |r| r.get(0))?;
         Ok(n > 0)
+    }
+
+    // -- sentences --------------------------------------------------------------------------
+
+    /// Inserts `(id, language, text)` rows in one transaction.
+    pub fn insert_sentences(&self, rows: &[(i64, &str, String)]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins =
+                tx.prepare_cached("INSERT OR REPLACE INTO sentences (id, lang, text) VALUES (?1, ?2, ?3)")?;
+            for (id, lang, text) in rows {
+                ins.execute(params![id, lang, text])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Inserts `(Japanese id, translation id)` pairs in one transaction.
+    pub fn insert_sentence_links(&self, links: &[(i64, i64)]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins =
+                tx.prepare_cached("INSERT OR IGNORE INTO sentence_links (jpn, other) VALUES (?1, ?2)")?;
+            for (jpn, other) in links {
+                ins.execute(params![jpn, other])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Inserts the indexed words of sentences, `(sentence id, word)`, in one transaction.
+    pub fn insert_sentence_words(&self, words: &[(i64, SentenceWord)]) -> anyhow::Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        {
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO sentence_words (sentence, headword, reading, sense, seq, surface, good)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for (sentence, w) in words {
+                ins.execute(params![
+                    sentence, w.headword, w.reading, w.sense, w.seq, w.surface, w.good
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Fills the trigram index from the sentences table, after an import or a removal.
+    pub fn rebuild_sentence_index(&self) -> anyhow::Result<()> {
+        self.conn
+            .execute_batch("INSERT INTO sentence_fts(sentence_fts) VALUES('rebuild')")?;
+        Ok(())
+    }
+
+    pub fn has_sentences(&self) -> anyhow::Result<bool> {
+        let n: i64 = self
+            .conn
+            .query_row("SELECT count(*) FROM sentences WHERE lang = 'jpn'", [], |r| {
+                r.get(0)
+            })?;
+        Ok(n > 0)
+    }
+
+    /// Example sentences for `entry`: the ones the corpus index ties to its JMdict number, or to
+    /// one of its forms (with the reading, when the index gives one). Good examples first, then
+    /// short ones. `surface` is the word as it stands in the sentence, the headword when the index
+    /// gives nothing else. `langs` are Tatoeba language codes, preferred first, for the translations.
+    /// Returns the sentences and the total count.
+    pub fn examples(
+        &self,
+        entry: &Entry,
+        langs: &[String],
+        limit: usize,
+    ) -> anyhow::Result<(Vec<Sentence>, usize)> {
+        let heads: Vec<&String> = entry.kanji.iter().chain(&entry.readings).collect();
+        if heads.is_empty() {
+            return Ok((Vec::new(), 0));
+        }
+        let seq = if entry.source == "jmdict" { entry.id } else { -1 };
+        let readings = if entry.readings.is_empty() {
+            "1".to_string()
+        } else {
+            format!("w.reading IN ({})", vec!["?"; entry.readings.len()].join(","))
+        };
+        // Two index lookups joined by OR (seq, headword). A `seq IS NULL` guard on the second
+        // branch would make SQLite walk the seq index over the million rows without one.
+        let condition = format!(
+            "(w.seq = ? OR (w.headword IN ({}) AND (w.reading IS NULL OR {readings})))",
+            vec!["?"; heads.len()].join(",")
+        );
+        let mut values: Vec<Value> = vec![Value::Integer(seq)];
+        values.extend(heads.iter().map(|h| Value::Text(h.to_string())));
+        values.extend(entry.readings.iter().map(|r| Value::Text(r.clone())));
+        let total: i64 = self.conn.query_row(
+            &format!("SELECT count(DISTINCT w.sentence) FROM sentence_words w WHERE {condition}"),
+            params_from_iter(values.iter()),
+            |r| r.get(0),
+        )?;
+        values.push(Value::Integer(limit as i64));
+        let sql = format!(
+            "SELECT w.sentence, s.text, max(w.good), coalesce(w.surface, w.headword)
+             FROM sentence_words w JOIN sentences s ON s.id = w.sentence
+             WHERE {condition}
+             GROUP BY w.sentence ORDER BY max(w.good) DESC, length(s.text), w.sentence LIMIT ?"
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let mut sentences: Vec<Sentence> = stmt
+            .query_map(params_from_iter(values), |r| {
+                Ok(Sentence {
+                    id: r.get(0)?,
+                    text: r.get(1)?,
+                    good: r.get::<_, i64>(2)? != 0,
+                    surface: r.get(3)?,
+                    translations: Vec::new(),
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        self.attach_translations(&mut sentences, langs)?;
+        Ok((sentences, total as usize))
+    }
+
+    /// Sentences containing `text`, in Japanese or in a translation: the Japanese sentence either
+    /// way, shortest first. Three characters and more go through the trigram index, less is a scan.
+    pub fn search_sentences(
+        &self,
+        text: &str,
+        langs: &[String],
+        limit: usize,
+    ) -> anyhow::Result<Vec<Sentence>> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (filter, value) = if text.chars().count() >= 3 {
+            (
+                "s.id IN (SELECT rowid FROM sentence_fts WHERE sentence_fts MATCH ?)",
+                format!("\"{}\"", text.replace('"', "\"\"")),
+            )
+        } else {
+            ("s.text LIKE ? ESCAPE '\\'", format!("%{}%", like_escape(text)))
+        };
+        let sql = format!(
+            "SELECT DISTINCT j.id, j.text FROM sentences s
+             LEFT JOIN sentence_links l ON l.other = s.id
+             JOIN sentences j ON j.id = CASE WHEN s.lang = 'jpn' THEN s.id ELSE l.jpn END
+             WHERE {filter} ORDER BY length(j.text), j.id LIMIT ?"
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let mut sentences: Vec<Sentence> = stmt
+            .query_map(params![value, limit as i64], |r| {
+                Ok(Sentence {
+                    id: r.get(0)?,
+                    text: r.get(1)?,
+                    ..Default::default()
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        self.attach_translations(&mut sentences, langs)?;
+        Ok(sentences)
+    }
+
+    /// The indexed words of a Japanese sentence, in sentence order.
+    pub fn sentence_words(&self, id: i64) -> anyhow::Result<Vec<SentenceWord>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT headword, reading, sense, seq, surface, good FROM sentence_words
+             WHERE sentence = ?1 ORDER BY rowid",
+        )?;
+        let words = stmt.query_map(params![id], |r| {
+            Ok(SentenceWord {
+                headword: r.get(0)?,
+                reading: r.get(1)?,
+                sense: r.get(2)?,
+                seq: r.get(3)?,
+                surface: r.get(4)?,
+                good: r.get::<_, i64>(5)? != 0,
+            })
+        })?;
+        Ok(words.collect::<Result<_, _>>()?)
+    }
+
+    /// One translation per language in `langs`, in that order; the first there is when none of
+    /// those languages has one.
+    fn attach_translations(&self, sentences: &mut [Sentence], langs: &[String]) -> anyhow::Result<()> {
+        if sentences.is_empty() {
+            return Ok(());
+        }
+        let members = vec!["?"; sentences.len()].join(",");
+        let sql = format!(
+            "SELECT l.jpn, t.lang, t.text FROM sentence_links l JOIN sentences t ON t.id = l.other
+             WHERE l.jpn IN ({members}) ORDER BY l.jpn, t.id"
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let ids = sentences.iter().map(|s| Value::Integer(s.id));
+        let mut all: HashMap<i64, Vec<(String, String)>> = HashMap::new();
+        for row in stmt.query_map(params_from_iter(ids), |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })? {
+            let (jpn, lang, text) = row?;
+            all.entry(jpn).or_default().push((lang, text));
+        }
+        for s in sentences {
+            let Some(found) = all.remove(&s.id) else { continue };
+            for lang in langs {
+                if let Some(t) = found.iter().find(|(l, _)| l == lang) {
+                    s.translations.push(t.clone());
+                }
+            }
+            if s.translations.is_empty()
+                && let Some(first) = found.into_iter().next()
+            {
+                s.translations.push(first);
+            }
+        }
+        Ok(())
     }
 
     // -- import -----------------------------------------------------------------------------
@@ -1185,7 +1443,7 @@ mod tests {
             .query_row("SELECT count(*) FROM glosses", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stale, 0);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("5"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("6"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1211,7 +1469,7 @@ mod tests {
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
         assert_eq!(db.entry_count().unwrap(), 7);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("5"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("6"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

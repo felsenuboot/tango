@@ -333,3 +333,34 @@ pub struct Radical {
     pub strokes: u8,
     pub kanji: Vec<char>,
 }
+
+/// A Tatoeba example sentence in Japanese with its translations.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Sentence {
+    /// Tatoeba's sentence number.
+    pub id: i64,
+    pub text: String,
+    /// `(language, text)`, ISO 639-3 as Tatoeba uses it ("eng", "deu"), preferred language first.
+    pub translations: Vec<(String, String)>,
+    /// How the looked-up word appears in the text, for highlighting; from the corpus index.
+    pub surface: Option<String>,
+    /// The Tanaka corpus marks sentences that are good examples of a word.
+    pub good: bool,
+}
+
+/// One word of a sentence in the Tanaka corpus index: `headword(reading)[sense]{surface}~`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SentenceWord {
+    /// The JMdict headword (first kanji form, or the reading of a kana word).
+    pub headword: String,
+    /// Given when the headword alone is ambiguous.
+    pub reading: Option<String>,
+    /// JMdict sense number, 1-based.
+    pub sense: Option<u8>,
+    /// JMdict `ent_seq`, given for some words (particles, mostly) instead of a reading.
+    pub seq: Option<i64>,
+    /// The form in the sentence when it differs from the headword.
+    pub surface: Option<String>,
+    /// Marked `~`: the sentence is a good example of this word.
+    pub good: bool,
+}

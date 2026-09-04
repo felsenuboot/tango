@@ -1,7 +1,8 @@
 //! The search box syntax: `#tags`, `"exact"` quotes and `*`/`?` wildcards around the text.
 //!
-//! `#common verb`, `#verb 食べ`, `"cat"`, `猫*`, `ne?o`. Tags filter the hits; quotes ask for a
-//! whole gloss or an exact form; wildcards switch to a pattern search.
+//! `#common verb`, `#verb 食べ`, `"cat"`, `猫*`, `ne?o`, `#sentences 猫`. Tags filter the hits;
+//! quotes ask for a whole gloss or an exact form; wildcards switch to a pattern search;
+//! `#sentences` searches the example sentences instead of the dictionary.
 
 /// A filter on the hits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +12,8 @@ pub enum Tag {
     Pos(&'static str),
     /// A substring of a JMdict misc marker ("abbreviation", "kana alone").
     Misc(&'static str),
+    /// Not a filter: search the Tatoeba sentences instead of the entries.
+    Sentences,
 }
 
 /// Tag names as typed, without the `#`.
@@ -30,6 +33,8 @@ pub const TAGS: &[(&str, Tag)] = &[
     ("interjection", Tag::Pos("interjection")),
     ("abbreviation", Tag::Misc("abbreviation")),
     ("kana", Tag::Misc("kana alone")),
+    ("sentences", Tag::Sentences),
+    ("sentence", Tag::Sentences),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -43,6 +48,8 @@ pub struct Query {
     pub exact: bool,
     /// The text contains `*` or `?`.
     pub wildcard: bool,
+    /// `#sentences`: look in the example sentences, not the dictionary.
+    pub sentences: bool,
 }
 
 pub fn parse(input: &str) -> Query {
@@ -52,6 +59,7 @@ pub fn parse(input: &str) -> Query {
         if let Some(name) = token.strip_prefix('#').filter(|n| !n.is_empty()) {
             let name = name.to_lowercase();
             match TAGS.iter().find(|(n, _)| *n == name) {
+                Some((_, Tag::Sentences)) => q.sentences = true,
                 Some((_, tag)) => q.tags.push(*tag),
                 None => q.unknown_tags.push(name),
             }
@@ -86,6 +94,10 @@ mod tests {
         let q = parse("ne?o*");
         assert!(q.wildcard && !q.exact);
         assert_eq!(parse("#").text, "#");
+        let q = parse("#sentences 猫が");
+        assert!(q.sentences);
+        assert!(q.tags.is_empty());
+        assert_eq!(q.text, "猫が");
         assert_eq!(parse("\"\"").text, "");
     }
 }

@@ -36,7 +36,7 @@ ranking. #7, #16 and #8 are three steps of one piece of work.
 ### 0.5 More dictionaries
 - #4 Wadoku with pitch accent (the largest reader; not the first source added)
 - #5 kanji view: KANJIDIC2, KanjiVG, radicals
-- #6 Tatoeba sentences
+- #6 Tatoeba sentences: examples under the entry, `#sentences` search, a sentence page
 - #17 remaining JMdict entry details, #18 JMnedict, #19 JLPT lists (opt-in,
   licence unclear), #20 external links and the optional online fallback
 

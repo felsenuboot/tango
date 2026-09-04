@@ -27,6 +27,10 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   French glosses lined up with the English meanings; Wadoku from wadoku.de
   with pitch accent shown as ⓪ ① ② beside the reading. Search covers both,
   in the order you set.
+- 💬 **Example sentences.** Tatoeba sentences under every entry that has
+  them, English and German side by side, the word in bold; `#sentences` in the
+  search box searches the sentences themselves, and a sentence page names
+  the words in it.
 - 🈷 **Kanji.** Click a kanji in a headword for its page: stroke order from
   KanjiVG, written stroke by stroke on request, readings, meanings, grade,
   JLPT level, frequency, its parts, and the words that use it. Find a kanji
@@ -71,8 +75,8 @@ with the desktop entry and icons. Or just `cargo run` from the checkout.
 There is no Flatpak, and Flathub is not planned.
 
 On first start, click **Download JMdict** (about 22 MB). Wadoku, KANJIDIC2,
-KanjiVG and the radical index are one click each on the Dictionaries page in
-Preferences.
+KanjiVG, the radical index and the Tatoeba sentences are one click each on
+the Dictionaries page in Preferences.
 
 ## Dictionaries and licences
 
@@ -87,14 +91,16 @@ Preferences.
   which allows use in free software with attribution.
 - [KanjiVG](https://kanjivg.tagaini.net/) stroke order data is © Ulrich Apel,
   Creative Commons Attribution-ShareAlike 3.0.
+- [Tatoeba](https://tatoeba.org/) sentences and the Tanaka corpus index are
+  released under Creative Commons Attribution 2.0 France.
 
 Everything is downloaded on request from the Dictionaries page; nothing is
 bundled with the app.
 
 ## Roadmap
 
-Example sentences from Tatoeba, the remaining JMdict entry details, JMnedict
-names, JLPT levels, and the WaniKani and MaruMori integrations. Tracked as
+The remaining JMdict entry details, JMnedict names, JLPT levels, and the
+WaniKani and MaruMori integrations. Tracked as
 [milestones](https://github.com/felsenuboot/tango/milestones); the order and
 the reasoning are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
