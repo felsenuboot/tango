@@ -28,7 +28,8 @@ Offline, with English and German glosses side by side.
   senses; Tango lines them up with the English meanings where the sense
   counts match and lists the rest per language.
 - **Word lists.** Star an entry (Ctrl+D) for Favourites or add it to any list
-  from the button next to the star; the Lists page in the sidebar browses,
+  from the button next to the star, or right-click a result row for the same
+  plus copying and Takoboto; the Lists page in the sidebar browses,
   renames and reorders them. Export a list as CSV, for Anki, for Kitsun or in
   Takoboto's layout, import a CSV of words or a Takoboto export, and back up
   all lists as JSON.

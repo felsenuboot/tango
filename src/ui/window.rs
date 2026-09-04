@@ -6,7 +6,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use adw::prelude::*;
-use gtk::{gio, glib, glib::clone};
+use gtk::{gdk, gio, glib, glib::clone};
 
 use super::entry_view::EntryView;
 use super::import_dialog;
@@ -259,6 +259,7 @@ impl Window {
             this,
             move |_| this.select_result(0)
         ));
+        this.install_row_menu();
         // A sentence cut into words gets a header above the first row of each word.
         this.results.set_header_func(clone!(
             #[weak]
@@ -551,6 +552,227 @@ impl Window {
         ));
         column.append(&new_list);
         popover.set_child(Some(&column));
+    }
+
+    // -- context menu on result rows --------------------------------------------------------
+
+    /// Right-click or long-press on a result row opens a menu for that entry: Favourites, the
+    /// lists, copying, Takoboto. The actions live in a "row" group on the list and take the row
+    /// index, so one menu model serves every row.
+    fn install_row_menu(self: &Rc<Self>) {
+        type RowAction = Box<dyn Fn(&Rc<Window>, &str)>;
+        let group = gio::SimpleActionGroup::new();
+        let add = |name: &str, target: bool, f: RowAction| {
+            let action = gio::SimpleAction::new(name, target.then_some(glib::VariantTy::STRING));
+            let weak = Rc::downgrade(self);
+            action.connect_activate(move |_, param| {
+                let param = param.and_then(|p| p.get::<String>()).unwrap_or_default();
+                if let Some(this) = weak.upgrade() {
+                    f(&this, &param);
+                }
+            });
+            group.add_action(&action);
+        };
+        // Targets are "<row>" or "<row>:<argument>".
+        fn split(param: &str) -> (usize, &str) {
+            let (row, rest) = param.split_once(':').unwrap_or((param, ""));
+            (row.parse().unwrap_or(usize::MAX), rest)
+        }
+        add(
+            "favourite",
+            true,
+            Box::new(|this, p| {
+                let (row, _) = split(p);
+                if let Some(entry) = this.entry_at(row) {
+                    let result = this.user.favourites().and_then(|fav| {
+                        if this.user.contains(fav.id, &entry.source, entry.id)? {
+                            this.user.remove(fav.id, &entry.source, entry.id)
+                        } else {
+                            this.user.add(fav.id, &entry, &this.list_gloss(&entry))
+                        }
+                    });
+                    if let Err(e) = result {
+                        this.toast(&format!("Cannot change Favourites: {e}"));
+                    }
+                    this.lists_changed();
+                }
+            }),
+        );
+        add(
+            "list",
+            true,
+            Box::new(|this, p| {
+                let (row, id) = split(p);
+                let (Some(entry), Ok(id)) = (this.entry_at(row), id.parse::<i64>()) else {
+                    return;
+                };
+                let result = if this.user.contains(id, &entry.source, entry.id).unwrap_or(false) {
+                    this.user.remove(id, &entry.source, entry.id)
+                } else {
+                    this.user.add(id, &entry, &this.list_gloss(&entry))
+                };
+                if let Err(e) = result {
+                    this.toast(&format!("Cannot change the list: {e}"));
+                }
+                this.lists_changed();
+            }),
+        );
+        add(
+            "new-list",
+            true,
+            Box::new(|this, p| {
+                let (row, _) = split(p);
+                let Some(entry) = this.entry_at(row) else { return };
+                ask_name(
+                    this,
+                    "New list",
+                    "",
+                    "Create",
+                    clone!(
+                        #[weak]
+                        this,
+                        move |name| {
+                            match this.user.create_list(&name) {
+                                Ok(list) => {
+                                    if let Err(e) = this.user.add(list.id, &entry, &this.list_gloss(&entry)) {
+                                        this.toast(&format!("Cannot add to the list: {e}"));
+                                    }
+                                }
+                                Err(e) => this.toast(&format!("Cannot create the list: {e}")),
+                            }
+                            this.lists_changed();
+                        }
+                    ),
+                );
+            }),
+        );
+        add(
+            "copy",
+            true,
+            Box::new(|this, p| {
+                let (row, what) = split(p);
+                let Some(entry) = this.entry_at(row) else { return };
+                let text = match what {
+                    "reading" => entry.reading().to_string(),
+                    "meaning" => this.list_gloss(&entry),
+                    _ => entry.headword().to_string(),
+                };
+                this.win.clipboard().set_text(&text);
+                this.toast(&format!("Copied {text}"));
+            }),
+        );
+        add(
+            "takoboto",
+            true,
+            Box::new(|this, p| {
+                let (row, _) = split(p);
+                if let Some(entry) = this.entry_at(row)
+                    && entry.source == "jmdict"
+                {
+                    let url = format!("https://takoboto.jp/?w={}", entry.id);
+                    gtk::UriLauncher::new(&url).launch(Some(&this.win), gio::Cancellable::NONE, |r| {
+                        if let Err(e) = r {
+                            log::warn!("cannot open {e}");
+                        }
+                    });
+                }
+            }),
+        );
+        self.results.insert_action_group("row", Some(&group));
+
+        let open_menu = clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |x: f64, y: f64| {
+                let Some(row) = this.results.row_at_y(y as i32) else {
+                    return;
+                };
+                let index = row.index() as usize;
+                let Some(model) = this.row_menu(index) else { return };
+                let popover = gtk::PopoverMenu::from_model(Some(&model));
+                popover.set_parent(&this.results);
+                popover.set_has_arrow(false);
+                popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+                popover.connect_closed(|p| {
+                    // Unparent once closed, or the list keeps every popover ever opened.
+                    let p = p.clone();
+                    glib::idle_add_local_once(move || p.unparent());
+                });
+                popover.popup();
+            }
+        );
+        let right_click = gtk::GestureClick::builder().button(3).build();
+        right_click.connect_pressed({
+            let open_menu = open_menu.clone();
+            move |_, _, x, y| open_menu(x, y)
+        });
+        self.results.add_controller(right_click);
+        let long_press = gtk::GestureLongPress::builder().touch_only(true).build();
+        long_press.connect_pressed(move |_, x, y| open_menu(x, y));
+        self.results.add_controller(long_press);
+    }
+
+    fn entry_at(&self, row: usize) -> Option<Entry> {
+        self.found.borrow().get(row).map(|h| h.entry.clone())
+    }
+
+    /// The menu for the result row at `index`, built fresh so the lists and check marks are current.
+    fn row_menu(&self, index: usize) -> Option<gio::Menu> {
+        let entry = self.entry_at(index)?;
+        let member = self.user.lists_with(&entry.source, entry.id).unwrap_or_default();
+        let lists = self.user.lists().unwrap_or_default();
+        let favourites = self.user.favourites().ok();
+        let menu = gio::Menu::new();
+
+        let keep = gio::Menu::new();
+        let in_favourites = favourites.as_ref().is_some_and(|f| member.contains(&f.id));
+        keep.append(
+            Some(if in_favourites {
+                "Remove from Favourites"
+            } else {
+                "Add to Favourites"
+            }),
+            Some(&format!("row.favourite('{index}')")),
+        );
+        let submenu = gio::Menu::new();
+        for list in &lists {
+            let label = if member.contains(&list.id) {
+                format!("✓ {}", list.name)
+            } else {
+                list.name.clone()
+            };
+            submenu.append(Some(&label), Some(&format!("row.list('{index}:{}')", list.id)));
+        }
+        submenu.append(Some("New list…"), Some(&format!("row.new-list('{index}')")));
+        keep.append_submenu(Some("Add to list"), &submenu);
+        menu.append_section(None, &keep);
+
+        let copy = gio::Menu::new();
+        copy.append(
+            Some("Copy headword"),
+            Some(&format!("row.copy('{index}:headword')")),
+        );
+        if !entry.reading().is_empty() && entry.reading() != entry.headword() {
+            copy.append(
+                Some("Copy reading"),
+                Some(&format!("row.copy('{index}:reading')")),
+            );
+        }
+        copy.append(
+            Some("Copy meaning"),
+            Some(&format!("row.copy('{index}:meaning')")),
+        );
+        menu.append_section(None, &copy);
+
+        if entry.source == "jmdict" {
+            let open = gio::Menu::new();
+            open.append(
+                Some("Open in Takoboto"),
+                Some(&format!("row.takoboto('{index}')")),
+            );
+            menu.append_section(None, &open);
+        }
+        Some(menu)
     }
 
     /// Shows the dictionary entry behind a list row, if its source is still installed.
