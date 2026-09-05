@@ -3,11 +3,21 @@
 #   Arch Linux: builds the tango-git package from the committed state of this checkout
 #               (packaging/arch/PKGBUILD) and installs it with pacman.
 #   Elsewhere:  release build into ~/.local/bin with the desktop entry and icons for this user.
+#   --user:     that per-user install on Arch too: no sudo, no package. Docks match a window's
+#               app id against installed desktop entries, so this also gives `cargo run`
+#               windows their icon instead of a generic one (#81).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP=io.github.felsenuboot.Tango
+USER_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --user) USER_ONLY=1 ;;
+    *) echo "usage: $0 [--user]" >&2; exit 2 ;;
+  esac
+done
 
-if command -v makepkg >/dev/null 2>&1 && [ -r /etc/arch-release ]; then
+if [ "$USER_ONLY" = 0 ] && command -v makepkg >/dev/null 2>&1 && [ -r /etc/arch-release ]; then
   echo "Arch Linux: building the tango-git package from the committed state of $HERE"
   echo "(uncommitted changes are not part of it; commit or stash first if you need them)."
   cd "$HERE/packaging/arch"

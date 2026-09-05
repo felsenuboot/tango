@@ -90,6 +90,11 @@ GitHub instead.
 **Anywhere else.** `./install.sh` puts a release build into `~/.local/bin`
 with the desktop entry and icons. Or just `cargo run` from the checkout.
 
+**Developing.** `./install.sh --user` does the per-user install on Arch as
+well, without sudo. Do it once even if you run the app with `cargo run`: the
+dock and the app switcher find a window's icon through its installed desktop
+entry, and show a generic one until it exists.
+
 | Distribution | Packages |
 | --- | --- |
 | Arch | `rust gtk4 libadwaita sqlite xz libsecret` |
