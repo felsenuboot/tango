@@ -75,6 +75,7 @@ pub fn with_window(f: impl FnOnce(&Rc<Window>)) {
 }
 
 pub fn startup(app: &adw::Application) {
+    crate::tts::probe();
     let display = gdk::Display::default().expect("no display");
     let css = gtk::CssProvider::new();
     css.load_from_string(CSS);
