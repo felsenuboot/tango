@@ -48,7 +48,7 @@ The [tour](docs/TOUR.md) is the short version and the
 
 ## Install
 
-Rust 1.85+, GTK 4.12+, libadwaita 1.5+, SQLite, liblzma, libsecret.
+Rust 1.88+, GTK 4.12+, libadwaita 1.5+, SQLite, liblzma, libsecret.
 
 ```
 git clone https://github.com/felsenuboot/tango.git

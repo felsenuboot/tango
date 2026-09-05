@@ -5,7 +5,7 @@ edition = "2024"
 description = "単語 – a Japanese dictionary (JMdict, Wadoku) for GNOME, in GTK4 + libadwaita"
 license = "MIT"
 repository = "https://github.com/felsenuboot/tango"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [dependencies]
 # GTK 4 and libadwaita bindings. The `v…` features gate APIs by library version; keep

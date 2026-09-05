@@ -5,7 +5,7 @@
 # Follows https://wiki.archlinux.org/title/Rust_package_guidelines (fetch in prepare, --frozen after).
 
 pkgname=tango-git
-pkgver=0.1.0.r8.g036afb9
+pkgver=0.5.0.r56.g1a25c8c
 pkgrel=1
 pkgdesc="Japanese dictionary (JMdict, Wadoku) for GNOME, in GTK 4 and libadwaita"
 arch=(x86_64 aarch64)

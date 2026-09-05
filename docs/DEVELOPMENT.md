@@ -42,7 +42,13 @@ gh release create v0.3.0 --generate-notes --notes-start-tag v0.2.0 --title "Tang
 ```
 
 Then edit the generated notes to start with two or three sentences of what
-the release means to a user, and close the milestone. Fixes between milestones
+the release means to a user, and close the milestone. In the same release
+pull request, set `pkgver=` in `packaging/arch/PKGBUILD` to what `pkgver()`
+prints for the release commit (`0.7.0.r<commits>.g<hash>`); `makepkg`
+recomputes it anyway, but the Arch guidelines want the field current.
+`rust-version` in `Cargo.toml` is the oldest toolchain that builds the code
+(1.88 for let chains); bump it when a newer feature lands, and the README's
+install line with it. Fixes between milestones
 go out as patch releases (`v0.3.1`). The Arch package takes its version from
 `Cargo.toml` plus the commit count, so the tag is not needed for it.
 
