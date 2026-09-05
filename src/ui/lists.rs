@@ -849,17 +849,17 @@ impl ListsPage {
         }
         open_text(&win, "CSV", &["*.csv", "*.tsv", "*.txt"], move |win, text| {
             let rows = csv::parse(&text);
-            match export::parse_takoboto(&rows) {
-                Some(takoboto) => {
-                    let (added, total) = win.add_takoboto_rows(&takoboto);
-                    win.toast(&format!(
-                        "Takoboto export: added {added} of {total} rows to their lists"
-                    ));
-                }
-                None => {
-                    let (added, total) = win.add_rows_to_list(id, &rows);
-                    win.toast(&format!("Added {added} of {total} rows"));
-                }
+            let outcome = match export::parse_takoboto(&rows) {
+                Some(takoboto) => win.add_takoboto_rows(&takoboto).map(|(added, total)| {
+                    format!("Takoboto export: added {added} of {total} rows to their lists")
+                }),
+                None => win
+                    .add_rows_to_list(id, &rows)
+                    .map(|(added, total)| format!("Added {added} of {total} rows")),
+            };
+            match outcome {
+                Ok(text) => win.toast(&text),
+                Err(e) => win.toast(&format!("Cannot import, nothing was added: {e}")),
             }
             win.lists_changed();
         });

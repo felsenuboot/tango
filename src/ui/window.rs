@@ -1,6 +1,7 @@
 //! The main window: search entry above a result list on the left, the selected entry on the right.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -1220,73 +1221,73 @@ impl Window {
         }
     }
 
-    /// Adds the rows of a Takoboto export to the lists they name, creating lists as needed.
-    /// Returns (added, rows).
-    pub fn add_takoboto_rows(&self, rows: &[TakobotoRow]) -> (usize, usize) {
+    /// The dictionary entry for an imported row: the one with that reading when the row gives
+    /// one, else the first the enabled sources have.
+    fn entry_for_row(&self, headword: &str, reading: &str, enabled: &[String]) -> Option<Entry> {
+        let found = self
+            .db
+            .lookup(&[headword.to_string()], enabled, 10)
+            .unwrap_or_default();
+        found
+            .iter()
+            .find(|e| !reading.is_empty() && e.readings.iter().any(|r| r == reading))
+            .or(found.first())
+            .cloned()
+    }
+
+    /// Adds the rows of a Takoboto export to the lists they name, creating lists as needed, in
+    /// one transaction (#107). Returns (added, rows).
+    pub fn add_takoboto_rows(&self, rows: &[TakobotoRow]) -> anyhow::Result<(usize, usize)> {
         let enabled = self.config.borrow().enabled_sources();
-        let mut added = 0;
-        for row in rows {
-            let list = match self.user.list_by_name(&row.list) {
-                Ok(Some(list)) => list,
-                _ => match self.user.create_list(&row.list) {
-                    Ok(list) => list,
-                    Err(e) => {
-                        log::warn!("cannot create list {:?}: {e:#}", row.list);
-                        continue;
+        self.user.transaction(|user| {
+            // The lists once, not once per row: `lists()` counts every list's entries.
+            let mut ids: HashMap<String, i64> = user.lists()?.into_iter().map(|l| (l.name, l.id)).collect();
+            let mut added = 0;
+            for row in rows {
+                let name = row.list.trim();
+                let list_id = match ids.get(name) {
+                    Some(id) => *id,
+                    None => {
+                        let id = user.create_list(name)?.id;
+                        ids.insert(name.to_string(), id);
+                        id
                     }
-                },
-            };
-            let found = self
-                .db
-                .lookup(std::slice::from_ref(&row.headword), &enabled, 10)
-                .unwrap_or_default();
-            let entry = found
-                .iter()
-                .find(|e| !row.reading.is_empty() && e.readings.contains(&row.reading))
-                .or(found.first());
-            if let Some(entry) = entry
-                && self.user.add(list.id, entry, &self.list_gloss(entry)).is_ok()
-            {
-                added += 1;
+                };
+                if let Some(entry) = self.entry_for_row(&row.headword, &row.reading, &enabled) {
+                    user.add(list_id, &entry, &self.list_gloss(&entry))?;
+                    added += 1;
+                }
             }
-        }
-        (added, rows.len())
+            Ok((added, rows.len()))
+        })
     }
 
     /// Adds CSV rows (headword, reading, meaning, note, …; a header row is skipped) to a list by
-    /// looking the words up; the note column is kept. Returns (added, rows).
-    pub fn add_rows_to_list(&self, list_id: i64, rows: &[Vec<String>]) -> (usize, usize) {
+    /// looking the words up, in one transaction; the note column is kept. Returns (added, rows).
+    pub fn add_rows_to_list(&self, list_id: i64, rows: &[Vec<String>]) -> anyhow::Result<(usize, usize)> {
         let enabled = self.config.borrow().enabled_sources();
-        let mut added = 0;
-        let mut total = 0;
-        for row in rows {
-            let headword = row.first().map(|s| s.trim()).unwrap_or("");
-            if headword.is_empty() || (total == 0 && headword.eq_ignore_ascii_case("headword")) {
-                continue;
-            }
-            total += 1;
-            let reading = row.get(1).map(|s| s.trim()).unwrap_or("");
-            let found = self
-                .db
-                .lookup(&[headword.to_string()], &enabled, 10)
-                .unwrap_or_default();
-            let entry = found
-                .iter()
-                .find(|e| !reading.is_empty() && e.readings.iter().any(|r| r == reading))
-                .or(found.first());
-            if let Some(entry) = entry
-                && self.user.add(list_id, entry, &self.list_gloss(entry)).is_ok()
-            {
+        self.user.transaction(|user| {
+            let mut added = 0;
+            let mut total = 0;
+            for row in rows {
+                let headword = row.first().map(|s| s.trim()).unwrap_or("");
+                if headword.is_empty() || (total == 0 && headword.eq_ignore_ascii_case("headword")) {
+                    continue;
+                }
+                total += 1;
+                let reading = row.get(1).map(|s| s.trim()).unwrap_or("");
+                let Some(entry) = self.entry_for_row(headword, reading, &enabled) else {
+                    continue;
+                };
+                user.add(list_id, &entry, &self.list_gloss(&entry))?;
                 added += 1;
                 let note = row.get(3).map(|s| s.trim()).unwrap_or("");
-                if !note.is_empty()
-                    && let Err(e) = self.user.set_note(list_id, &entry.source, entry.id, note)
-                {
-                    log::warn!("cannot keep the note for {headword}: {e:#}");
+                if !note.is_empty() {
+                    user.set_note(list_id, &entry.source, entry.id, note)?;
                 }
             }
-        }
-        (added, total)
+            Ok((added, total))
+        })
     }
 
     /// Autopilot: scrolls whatever the content pane shows to its top or its end.

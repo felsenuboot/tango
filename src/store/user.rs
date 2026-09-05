@@ -167,6 +167,16 @@ impl UserDb {
         Ok(())
     }
 
+    /// Runs `f` as one transaction: an import of a thousand rows commits once instead of a
+    /// thousand times (with WAL every commit is an fsync), and a failure halfway leaves
+    /// nothing behind (#107). `f` uses the same `UserDb`; the transaction wraps its connection.
+    pub fn transaction<T>(&self, f: impl FnOnce(&Self) -> anyhow::Result<T>) -> anyhow::Result<T> {
+        let tx = self.conn.unchecked_transaction()?;
+        let out = f(self)?;
+        tx.commit()?;
+        Ok(out)
+    }
+
     // -- accounts ---------------------------------------------------------------------------
 
     pub fn upsert_wk_subjects(&self, subjects: &[Subject]) -> anyhow::Result<()> {
@@ -513,25 +523,26 @@ impl UserDb {
     /// Merges a backup in: lists are matched by name and created when missing, entries that are
     /// already there are left alone. Returns how many entries were added.
     pub fn restore(&self, backup: &Backup) -> anyhow::Result<usize> {
-        let mut added = 0;
-        for list in &backup.lists {
-            let target = match self.list_by_name(&list.name)? {
-                Some(l) => l,
-                None => self.create_list(&list.name)?,
-            };
-            for e in &list.entries {
-                let n = self.conn.execute(
+        self.transaction(|db| {
+            let mut added = 0;
+            for list in &backup.lists {
+                let target = match db.list_by_name(&list.name)? {
+                    Some(l) => l,
+                    None => db.create_list(&list.name)?,
+                };
+                let mut ins = db.conn.prepare_cached(
                     "INSERT OR IGNORE INTO list_entries
                      (list_id, source, seq, headword, reading, gloss, note, added)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        target.id, e.source, e.seq, e.headword, e.reading, e.gloss, e.note, e.added
-                    ],
                 )?;
-                added += n;
+                for e in &list.entries {
+                    added += ins.execute(params![
+                        target.id, e.source, e.seq, e.headword, e.reading, e.gloss, e.note, e.added
+                    ])?;
+                }
             }
-        }
-        Ok(added)
+            Ok(added)
+        })
     }
 }
 
@@ -604,6 +615,25 @@ mod tests {
         assert_eq!(other.restore(&parsed).unwrap(), 1);
         assert_eq!(other.restore(&parsed).unwrap(), 0);
         assert_eq!(other.backup().unwrap(), backup);
+    }
+
+    #[test]
+    fn a_failed_transaction_leaves_nothing() {
+        let db = UserDb::open_in_memory().unwrap();
+        let result: anyhow::Result<()> = db.transaction(|db| {
+            db.create_list("Half")?;
+            anyhow::bail!("disk on fire")
+        });
+        assert!(result.is_err());
+        assert!(db.list_by_name("Half").unwrap().is_none());
+        let n = db
+            .transaction(|db| {
+                db.create_list("Whole")?;
+                Ok(db.lists()?.len())
+            })
+            .unwrap();
+        assert_eq!(n, 2);
+        assert!(db.list_by_name("Whole").unwrap().is_some());
     }
 
     #[test]
