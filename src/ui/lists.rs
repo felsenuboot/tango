@@ -141,12 +141,22 @@ impl ListsPage {
         header.append(&menu_button);
         // Filters for the WaniKani list (#55): what kind of item, which level, which stage.
         let kind = gtk::DropDown::from_strings(&["Words and kanji", "Words", "Kanji"]);
+        // Rows 1..=60 are single levels, 61.. are "up to" a level (#82); typing in the
+        // popover's search field narrows the 120 rows.
         let mut levels = vec!["Any level".to_string()];
         levels.extend((1..=60).map(|n| format!("Level {n}")));
+        levels.extend((2..=60).map(|n| format!("Up to level {n}")));
         let level_refs: Vec<&str> = levels.iter().map(String::as_str).collect();
         let level = gtk::DropDown::from_strings(&level_refs);
+        level.set_expression(Some(&gtk::PropertyExpression::new(
+            gtk::StringObject::static_type(),
+            gtk::Expression::NONE,
+            "string",
+        )));
+        level.set_enable_search(true);
         let stage = gtk::DropDown::from_strings(&[
             "Any stage",
+            "Unlocked",
             "Apprentice",
             "Guru",
             "Master",
@@ -410,6 +420,13 @@ impl ListsPage {
         }
     }
 
+    /// Selects rows of the three WaniKani filters (for the autopilot).
+    pub fn set_filters(&self, kind: u32, level: u32, stage: u32) {
+        self.kind.set_selected(kind);
+        self.level.set_selected(level);
+        self.stage.set_selected(stage);
+    }
+
     /// The synced WaniKani items that pass the kind, level and stage filters.
     fn filtered_wanikani(&self, win: &Rc<Window>) -> Vec<Learned> {
         let all = win.user().learned_of("wanikani").unwrap_or_else(|e| {
@@ -421,26 +438,32 @@ impl ListsPage {
             2 => Some(Kind::Kanji),
             _ => None,
         };
+        // (level, and whether everything below it counts too)
         let level = match self.level.selected() {
             0 => None,
-            n => Some(n),
+            n if n <= 60 => Some((n, false)),
+            n => Some((n - 59, true)),
         };
         // The stage drop-down's rows, from a WaniKani stage number.
         let stage_row = |s: u8| -> u32 {
             match s {
-                0 => 6,
-                1..=4 => 1,
-                5 | 6 => 2,
-                7 => 3,
-                8 => 4,
-                _ => 5,
+                0 => 7,
+                1..=4 => 2,
+                5 | 6 => 3,
+                7 => 4,
+                8 => 5,
+                _ => 6,
             }
         };
         let wanted_stage = self.stage.selected();
         all.into_iter()
             .filter(|l| kind.is_none_or(|k| l.kind == k))
-            .filter(|l| level.is_none_or(|n| l.level == n))
-            .filter(|l| wanted_stage == 0 || stage_row(l.stage) == wanted_stage)
+            .filter(|l| level.is_none_or(|(n, below)| if below { l.level <= n } else { l.level == n }))
+            .filter(|l| match wanted_stage {
+                0 => true,
+                1 => l.stage != 0, // Unlocked: every stage but Locked
+                row => stage_row(l.stage) == row,
+            })
             .collect()
     }
 

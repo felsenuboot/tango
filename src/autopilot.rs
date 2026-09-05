@@ -17,6 +17,7 @@
 //!   star                 toggle the current entry in Favourites
 //!   sidebar search|lists show that sidebar page
 //!   list <name>          open that word list in the sidebar
+//!   filter <kind> <level> <stage>   rows of the WaniKani list's three drop-downs
 //!   lists                log the word lists and their entry counts
 //!   preferences [general|dictionaries]   open the preferences, on that page
 //!   about                open the about dialog
@@ -114,6 +115,15 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         "list" if arg == "WaniKani" => {
             win.show_sidebar_page("lists");
             win.lists_page().open_list(crate::ui::lists::WANIKANI_LIST);
+        }
+        "filter" => {
+            let mut rows = arg.split_whitespace().map(|s| s.parse::<u32>().unwrap_or(0));
+            let (kind, level, stage) = (
+                rows.next().unwrap_or(0),
+                rows.next().unwrap_or(0),
+                rows.next().unwrap_or(0),
+            );
+            win.lists_page().set_filters(kind, level, stage);
         }
         "list" => match win.user().list_by_name(arg) {
             Ok(Some(list)) => {

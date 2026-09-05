@@ -146,7 +146,8 @@ and `#known` alone lists what you have learned.
 ![今日は with its WaniKani chips](../data/screenshots/wanikani-entry.png)
 
 The Lists page has a WaniKani list of every synced word and kanji, filtered
-by kind, level and stage, exportable like any list.
+by kind, level (one level, or everything up to one) and stage (one stage, or
+everything unlocked), exportable like any list.
 
 ![The WaniKani list with its filters](../data/screenshots/wanikani-list.png)
 
