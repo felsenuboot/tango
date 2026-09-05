@@ -46,8 +46,29 @@ ranking. #7, #16 and #8 are three steps of one piece of work.
 ### 0.6 Accounts
 - #11 WaniKani: token in the keyring (libsecret), incremental sync into the
   provider-independent `learned` table of the user database, chips and
-  `#known` filters; #12 MaruMori as the second provider once its API is known
-- Kitsun sync (#15) when its API exists
+  `#known` filters, the WaniKani list, themes, the tour and the guide
+
+### 0.7 Robustness
+The 2026-09-06 review of the whole code base: #100–#114 and #134. Timeouts on
+every download and API call, the searches on a worker thread (#104) and the
+kanji of each form indexed at import (#105), transactional list imports,
+friendlier errors, an AppStream file, Dependabot and `cargo audit`.
+
+### 0.8 Entry page and UX
+- #96 sections of the entry page as collapsible cards
+- #95 example sentences coloured by what the user knows, optional furigana
+- #79 the UI/UX pass from Felix's walk-through
+- #66 `Window::new` split into builders
+- #69 the rest of pronunciation: Tatoeba sentence audio
+
+### 0.9 macOS
+- #115 the keyring behind a platform layer (libsecret is Linux-only)
+- #116 TTS through `say`
+- #117 Homebrew build, bundled SQLite, a CI job, an app bundle
+
+### Later
+Blocked on third parties or not scheduled: #12 MaruMori (its API details are
+not public), Kitsun sync (#15, no API yet), #118 translations.
 
 ## Decisions taken
 - #3: JMdict lists Dutch, French and German glosses as separate senses after
@@ -56,3 +77,12 @@ ranking. #7, #16 and #8 are three steps of one piece of work.
   block otherwise (details and numbers in `docs/DEVELOPMENT.md`).
 - #19: the JLPT lists are downloaded only when the user asks, never by
   default.
+- #12 sits in *Later* rather than holding 0.6 open: MaruMori's endpoints and
+  key format are only visible in its app settings, so the work cannot start
+  without them.
+- Performance (2026-09-06, on the real database of 665,201 entries): the
+  indexed searches answer in 2–6 ms, so there is nothing to gain from another
+  language. What stalled the window were SQL scans on the UI thread: the
+  wildcard gloss search (0.8 s) and the kanji page's word list (157 ms). The
+  searches moved to a worker thread with their own connection (#104) and the
+  kanji of every form are indexed at import (#105, 2–26 ms).

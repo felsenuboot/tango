@@ -68,5 +68,12 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
 Milestones on GitHub, details in `docs/ROADMAP.md`: 0.2 Solid JMdict (#2 #3
 #9), 0.3 Search (#7 #16 #8), 0.4 Lists (#10 #14 #15), 0.5 More dictionaries
 (#4 #5 #6 #17 #18 #19 #20, plus #31 #34 #36–#39), all released; 0.6 Accounts
-(#11 #12) is next. #13 is the Jisho-parity umbrella; #16–#20 are its
-sub-issues.
+(#11 and everything around it) is complete and unreleased; 0.7 Robustness
+(#100–#114, #134, the 2026-09-06 review) follows, then 0.8 Entry page and UX
+(#96 #95 #79 #66 #69) and 0.9 macOS (#115–#117). *Later* holds what is
+blocked on third parties (#12 MaruMori, Kitsun sync) or unscheduled (#118
+translations). #13 is the Jisho-parity umbrella; #16–#20 are its sub-issues.
+- **Searches run on a worker thread** (`spawn_search_worker` in `window.rs`,
+  #104) with their own connection, opened in `Window::new` before any job can
+  start; the UI thread only builds rows. Keep new queries off the UI thread
+  unless they are index lookups.
