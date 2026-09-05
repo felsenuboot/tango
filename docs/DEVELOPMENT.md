@@ -237,7 +237,7 @@ desktop's palette. The Light and Dark settings beat that file by re-declaring
 libadwaita's named colours one priority above it, see `src/ui/theme.rs`. The
 `theme light|dark|system` autopilot step switches for one run without saving.
 
-The README slideshow and `docs/TOUR.md` are captured the same way, with all
+The README slideshow and the screenshots in `docs/guide/` are captured the same way, with all
 five dictionaries imported, a throwaway user database holding a few
 favourites, and `XDG_CONFIG_HOME` pointing at a config with
 `{"gloss_languages": ["ger", "eng"]}`. One 1280×720 capture per screen goes

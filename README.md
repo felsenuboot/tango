@@ -18,59 +18,32 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
 
 ## Features
 
-- 🔍 **Search the way you think.** Kana, kanji, romaji, English or German.
-  Inflected forms find their dictionary entry with the chain shown
-  (書かれました → 書く: passive, polite, past); a pasted sentence is cut into
-  words; `#common`, `#verb` and friends filter; `"quotes"` and `*` wildcards
-  do what they say. Everything answers in a few milliseconds.
-- 🔊 **Pronunciation.** The pitch accent as a graph over the moras, from
-  Wadoku's accent numbers, and a speaker button on readings and example
-  sentences when speech-dispatcher has a Japanese voice (nothing bundled).
-- 📖 **Two dictionaries.** JMdict from the EDRDG, with its German, Dutch and
-  French glosses lined up with the English meanings, and every detail it
-  carries: usage and field tags, dialects, notes, loanword origins, "see
-  also" links, and what it says about each form; Wadoku from wadoku.de
-  with pitch accent shown as ⓪ ① ② beside the reading. Search covers both,
-  in the order you set.
-- 🏷️ **Names.** JMnedict, the EDRDG's names file, as a dictionary of its
-  own: exact matches show up after the words, `#names` searches nothing
-  else.
-- 🎓 **JLPT levels.** An opt-in download of Jonathan Waller's unofficial N5–N1
-  lists: a level chip on the entry and in the results, `#jlpt-n5` … `#jlpt-n1`
-  as filters or on their own to list a level.
-- 💬 **Example sentences.** Tatoeba sentences under every entry that has
-  them, English and German side by side, the word in bold; `#sentences` in the
-  search box searches the sentences themselves, and a sentence page names
-  the words in it.
-- 🈷 **Kanji.** Click a kanji in a headword for its page: stroke order from
-  KanjiVG, written stroke by stroke on request, readings, meanings, grade,
-  JLPT level, frequency, its parts, and the words that use it. Find a kanji
-  by its parts on the Kanji page of the sidebar.
-- ⭐ **Word lists.** Star an entry for Favourites, add it to any list from the
-  button above the entry or a right-click on a result. Export as CSV, for
-  Anki, Kitsun or Takoboto; import a CSV or a Takoboto export; back up all
-  lists as JSON.
-- 🔗 **Elsewhere.** Open an entry on Jisho, Wadoku, Japanese Wikipedia or
-  Wiktionary, or in Takoboto; open Takoboto links in Tango; a search that
-  finds nothing offers the same query on jisho.org.
-- 🗂️ **Dictionaries page.** Every source with version, import date and entry
-  count; update, remove, toggle. Downloads and imports run in the background,
-  queued, while you keep searching. Nothing is bundled; downloads happen on
-  request.
-- 🐊 **WaniKani.** Connect an account on the Accounts page (the token lives
-  in the keyring): entries and kanji pages show the WaniKani level and SRS
-  stage, `#known`, `#unknown`, `#kanji-known` and `#wk-level-12` filter by
-  what you have learned, and the Lists page has a WaniKani list of every
-  synced word and kanji, filterable by kind, level and stage, exportable
-  like any list.
-- 🎨 **Desktop.** Adaptive layout; Follow system, Light and Dark, plus
-  themes: WaniKani (blue accent on your base), WaniKani Dark, Light and
-  Pink, and four Sanzo Wada colour combinations; your own
-  `~/.config/tango/style.css` loads on top of any of them,
-  keyboard shortcuts (`Ctrl+F` / `/` search, `Ctrl+D` star, `Ctrl+I` import,
-  `Ctrl+,` preferences).
+- 🔍 **Search.** Kana, kanji, romaji, English or German; inflected forms
+  resolve to their entry with the chain shown; a pasted sentence is cut into
+  words; `#tags`, `"quotes"` and `*` wildcards. A few milliseconds, offline.
+- 📖 **Two dictionaries.** JMdict with every tag, note and cross-reference it
+  carries, and Wadoku with pitch accent; searched together, in your order.
+- 🔊 **Pronunciation.** The pitch accent as a graph over the moras, and a
+  speaker button when the system has a Japanese voice (nothing bundled).
+- 🏷️ **Names.** JMnedict as a dictionary of its own.
+- 🎓 **JLPT levels.** The unofficial N5–N1 lists as chips and filters, opt-in.
+- 💬 **Example sentences.** Tatoeba under every entry, English and German;
+  `#sentences` searches the sentences themselves.
+- 🈷 **Kanji.** Stroke order from KanjiVG, readings, meanings, parts and
+  words; find a kanji by its parts.
+- ⭐ **Word lists.** Favourites and lists of your own; export for Anki,
+  Kitsun and Takoboto, import CSV or a Takoboto export.
+- 🔗 **Elsewhere.** Jisho, Wadoku, Wikipedia, Wiktionary and Takoboto one
+  button away; Takoboto links open in Tango.
+- 🗂️ **Dictionaries page.** Every source with version and count; downloads
+  and imports queue in the background while you search.
+- 🐊 **WaniKani.** Level and SRS stage chips on entries and kanji, `#known`
+  and friends, a filterable WaniKani list.
+- 🎨 **Desktop.** Adaptive layout; system, light and dark plus WaniKani and
+  Sanzo Wada themes; your own CSS; keyboard shortcuts.
 
-The [tour](docs/TOUR.md) shows each of these with screenshots.
+The [tour](docs/TOUR.md) is the short version and the
+[guide](docs/guide/README.md) has a page per topic with screenshots.
 
 ## Install
 
