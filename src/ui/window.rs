@@ -388,6 +388,8 @@ impl Window {
             this,
             move |_| this.select_result(0)
         ));
+        // Escape: the search is cleared and the empty state comes back.
+        this.search.connect_stop_search(|entry| entry.set_text(""));
         this.install_row_menu();
         this.entry_view.connect_kanji(clone!(
             #[weak]
@@ -555,6 +557,7 @@ impl Window {
 
         this.refresh_state();
         this.search.grab_focus();
+        super::name_icon_buttons(this.win.upcast_ref());
         this
     }
 

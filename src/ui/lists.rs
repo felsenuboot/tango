@@ -328,6 +328,7 @@ impl ListsPage {
             self.entries_box.append(&self.row(&win, id, e, None));
         }
         *self.entries.borrow_mut() = entries;
+        super::name_icon_buttons(self.entries_box.upcast_ref());
     }
 
     /// One row: headword and reading, gloss and note, then the learned chip or a remove button.

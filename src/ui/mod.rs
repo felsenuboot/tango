@@ -34,6 +34,27 @@ thread_local! {
     static WINDOW: RefCell<Option<Rc<Window>>> = const { RefCell::new(None) };
 }
 
+/// Gives every icon-only button under `root` its tooltip as accessible name, so a screen reader
+/// says "Favourite" rather than "button". Cheap enough to run after any (re)build of widgets.
+pub fn name_icon_buttons(root: &gtk::Widget) {
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        let tooltip = widget.tooltip_text();
+        let icon_only = if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+            button.icon_name().is_some() && button.label().is_none()
+        } else if let Some(button) = widget.downcast_ref::<gtk::MenuButton>() {
+            button.icon_name().is_some() && button.label().is_none()
+        } else {
+            false
+        };
+        if icon_only && let Some(tooltip) = tooltip {
+            widget.update_property(&[gtk::accessible::Property::Label(&tooltip)]);
+        }
+        name_icon_buttons(&widget);
+        child = widget.next_sibling();
+    }
+}
+
 /// Removes a list box's rows and nothing else. `ListBox::remove_all` also removes the
 /// placeholder ("No results", "Empty list"), which then never shows again.
 pub fn clear_rows(list: &gtk::ListBox) {

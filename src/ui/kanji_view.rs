@@ -268,5 +268,6 @@ impl KanjiView {
         }
         *self.words.borrow_mut() = words;
         self.root.vadjustment().set_value(0.0);
+        super::name_icon_buttons(self.body.upcast_ref());
     }
 }

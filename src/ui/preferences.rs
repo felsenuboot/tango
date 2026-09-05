@@ -25,6 +25,7 @@ pub fn show(win: &Rc<Window>, page: Option<&str>) {
     if let Some(name) = page {
         dialog.set_visible_page_name(name);
     }
+    super::name_icon_buttons(dialog.upcast_ref());
     dialog.present(Some(&win.win));
 }
 
@@ -157,6 +158,7 @@ fn rebuild_languages(list: &gtk::ListBox, win: &Rc<Window>) {
         ));
         list.append(&row);
     }
+    super::name_icon_buttons(list.upcast_ref());
 }
 
 fn accounts_page(win: &Rc<Window>) -> adw::PreferencesPage {
@@ -320,6 +322,7 @@ fn rebuild_wanikani(list: &gtk::ListBox, win: &Rc<Window>) {
             }
         }
     }
+    super::name_icon_buttons(list.upcast_ref());
 }
 
 fn dictionaries_page(win: &Rc<Window>) -> adw::PreferencesPage {
@@ -369,6 +372,7 @@ fn rebuild_sources(list: &gtk::ListBox, win: &Rc<Window>) {
             can_move_up,
         ));
     }
+    super::name_icon_buttons(list.upcast_ref());
 }
 
 fn source_row(

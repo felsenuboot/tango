@@ -181,6 +181,9 @@ desktop. Tick and delete when done; a bug goes into a new issue.
 - [ ] **#69 pronunciation.** Open 猫 (Wadoku installed): a pitch graph under the
   reading; the speaker buttons on the reading and on example sentences read
   through your VOICEVOX / Open JTalk voice; with `TANGO_NO_TTS=1` they are gone.
+- [ ] **#65 accessibility.** With Orca running, Tab through the header
+  buttons: each is announced by name (Favourite, Add to a list, Open on
+  another site, Main menu), and Escape in the search box clears it.
 - [ ] **#11 WaniKani.** Preferences → Accounts: paste a read-only token and
   Connect; the row shows your username and level, the first sync runs in the
   background (about thirty requests, half a minute), then 食べる shows a
