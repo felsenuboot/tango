@@ -308,7 +308,11 @@ Idioms you will meet in the UI:
   job, which sends `Progress` messages over `async_channel`; a future on the
   GLib main loop applies them and tells the listeners (the Dictionaries page
   rows, the header spinner). Widgets never leave the main thread. Jobs run
-  one at a time, so there is never a second writer on the SQLite file.
+  one at a time, so there is never a second writer on the SQLite file. The
+  searches run the same way on one long-lived thread with its own connection
+  (`spawn_search_worker` in `window.rs`, #104): the window sends a numbered
+  request, the thread answers with the outcome, and an answer to a query
+  that has since been replaced is dropped.
 - **Traits must be in scope.** Most widget methods come from extension traits,
   hence `use adw::prelude::*;` in every UI file (it re-exports GTK's prelude).
 - **`anyhow::Result`** everywhere errors can happen; `.with_context(|| …)`

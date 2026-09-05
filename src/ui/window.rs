@@ -4,6 +4,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use adw::prelude::*;
@@ -49,6 +50,64 @@ enum View {
 /// Example sentences shown under an entry at first, and after "Show all".
 const EXAMPLES_FIRST: usize = 5;
 const EXAMPLES_ALL: usize = 100;
+
+/// One search for the worker thread (#104): everything `search::run` needs, plus the
+/// generation, so an outcome for an older query is dropped when it comes back.
+struct SearchRequest {
+    generation: u64,
+    query: String,
+    sources: Vec<String>,
+    langs: Vec<String>,
+    learned: Arc<LearnedIndex>,
+}
+
+/// Runs the searches on its own thread with its own database connection, so a slow one (a
+/// wildcard scan, a long pasted sentence) never freezes the window. Requests that pile up
+/// while one runs are skipped: only the newest matters.
+fn spawn_search_worker(
+    db: Database,
+    requests: mpsc::Receiver<SearchRequest>,
+    outcomes: async_channel::Sender<(u64, String, search::Outcome)>,
+) {
+    let spawned = std::thread::Builder::new()
+        .name("tango-search".into())
+        .spawn(move || {
+            while let Ok(mut request) = requests.recv() {
+                while let Ok(newer) = requests.try_recv() {
+                    request = newer;
+                }
+                let started = std::time::Instant::now();
+                let outcome = search::run(
+                    &db,
+                    &request.query,
+                    RESULT_LIMIT,
+                    &request.sources,
+                    &tatoeba::languages(&request.langs),
+                    &request.learned,
+                )
+                .unwrap_or_else(|e| {
+                    log::error!("search failed: {e:#}");
+                    search::Outcome::default()
+                });
+                log::debug!(
+                    "search {:?}: {} hits, {} sentences in {} ms",
+                    request.query,
+                    outcome.hits.len(),
+                    outcome.sentences.len(),
+                    started.elapsed().as_millis()
+                );
+                if outcomes
+                    .send_blocking((request.generation, request.query, outcome))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        log::error!("cannot start the search thread: {e}");
+    }
+}
 
 pub struct Window {
     pub win: adw::ApplicationWindow,
@@ -111,8 +170,12 @@ pub struct Window {
     /// How many example sentences the entry shows: a few, or all after "Show all".
     example_limit: Cell<usize>,
     /// What the learning accounts know, for the `#known` filters; reloaded after a sync.
-    learned: RefCell<LearnedIndex>,
+    /// Shared with the search thread, hence the `Arc`.
+    learned: RefCell<Arc<LearnedIndex>>,
     search_timer: Cell<Option<glib::SourceId>>,
+    /// The search thread's inbox, and the number of the newest search sent to it.
+    search_requests: mpsc::Sender<SearchRequest>,
+    search_generation: Cell<u64>,
 }
 
 impl Window {
@@ -371,6 +434,14 @@ impl Window {
             log::error!("cannot read the learned items: {e:#}");
             LearnedIndex::new()
         });
+        // The search thread's own connection, opened here and now: opening one runs the
+        // interrupted-import check, which must not happen while a job is importing.
+        let (search_requests, request_rx) = mpsc::channel::<SearchRequest>();
+        let (outcome_tx, outcome_rx) = async_channel::unbounded();
+        match Database::open(&db_path) {
+            Ok(search_db) => spawn_search_worker(search_db, request_rx, outcome_tx),
+            Err(e) => log::error!("cannot open {} for the search thread: {e:#}", db_path.display()),
+        }
         let this = Rc::new(Self {
             win,
             search,
@@ -412,8 +483,20 @@ impl Window {
             history: RefCell::new(Vec::new()),
             going_back: Cell::new(false),
             example_limit: Cell::new(EXAMPLES_FIRST),
-            learned: RefCell::new(learned),
+            learned: RefCell::new(Arc::new(learned)),
             search_timer: Cell::new(None),
+            search_requests,
+            search_generation: Cell::new(0),
+        });
+        // Outcomes come back on the main loop; one for a query since replaced is dropped.
+        let weak = Rc::downgrade(&this);
+        glib::spawn_future_local(async move {
+            while let Ok((generation, query, outcome)) = outcome_rx.recv().await {
+                let Some(this) = weak.upgrade() else { break };
+                if generation == this.search_generation.get() {
+                    this.show_outcome(&query, outcome);
+                }
+            }
         });
 
         // Callbacks hold *weak* references (`#[weak]`), so the window can be freed: a strong
@@ -1335,35 +1418,30 @@ impl Window {
         self.run_search(&query);
     }
 
+    /// Hands the query to the search thread; `show_outcome` takes over when it answers.
     fn run_search(&self, query: &str) {
-        let enabled = self.config.borrow().enabled_sources();
-        let langs = self.config.borrow().gloss_languages.clone();
-        let started = std::time::Instant::now();
-        let outcome = match search::run(
-            &self.db,
-            query,
-            RESULT_LIMIT,
-            &enabled,
-            &tatoeba::languages(&langs),
-            &self.learned.borrow(),
-        ) {
-            Ok(outcome) => outcome,
-            Err(e) => {
-                log::error!("search failed: {e:#}");
-                search::Outcome::default()
-            }
-        };
-        log::debug!(
-            "search {query:?}: {} hits, {} sentences in {} ms",
-            outcome.hits.len(),
-            outcome.sentences.len(),
-            started.elapsed().as_millis()
-        );
-        self.no_results.set_description(outcome.hint.as_deref());
         // Toggling the button's visibility inside the placeholder made the whole page vanish
         // after a search, so it stays and is merely insensitive without a query.
         self.search_online.set_sensitive(!query.trim().is_empty());
         self.update_kanji_hint(query);
+        let generation = self.search_generation.get() + 1;
+        self.search_generation.set(generation);
+        let request = SearchRequest {
+            generation,
+            query: query.to_string(),
+            sources: self.config.borrow().enabled_sources(),
+            langs: self.config.borrow().gloss_languages.clone(),
+            learned: self.learned.borrow().clone(),
+        };
+        if self.search_requests.send(request).is_err() {
+            log::error!("the search thread is gone");
+        }
+    }
+
+    /// The rows for what the search thread found.
+    fn show_outcome(&self, query: &str, outcome: search::Outcome) {
+        let langs = self.config.borrow().gloss_languages.clone();
+        self.no_results.set_description(outcome.hint.as_deref());
         let any = !outcome.hits.is_empty() || !outcome.sentences.is_empty();
         super::clear_rows(&self.results);
         *self.found.borrow_mut() = outcome.hits;
@@ -1847,10 +1925,10 @@ impl Window {
 
     /// After a sync: the filters' index and the shown entry follow the new data.
     pub fn refresh_learned(&self) {
-        *self.learned.borrow_mut() = self.user.learned_index().unwrap_or_else(|e| {
+        *self.learned.borrow_mut() = Arc::new(self.user.learned_index().unwrap_or_else(|e| {
             log::error!("cannot read the learned items: {e:#}");
             LearnedIndex::new()
-        });
+        }));
         self.rerender();
     }
 
