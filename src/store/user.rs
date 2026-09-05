@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::accounts::wanikani::{Assignment, Subject};
-use crate::accounts::{Kind, Learned};
+use crate::accounts::{self, Kind, Learned};
 use std::path::Path;
 
 use anyhow::Context;
@@ -73,7 +73,27 @@ CREATE TABLE sync_state (
     PRIMARY KEY (provider, key)
 );
 ",
+    "
+-- #98: the provider's reading, so ふじ山 finds 富士山. Dropping the subjects cursor makes the
+-- next sync fetch every subject again, with its readings.
+ALTER TABLE wk_subjects ADD COLUMN reading TEXT NOT NULL DEFAULT '';
+ALTER TABLE learned ADD COLUMN reading TEXT NOT NULL DEFAULT '';
+DELETE FROM sync_state WHERE provider = 'wanikani' AND key = 'subjects';
+",
 ];
+
+/// One `learned` row as selected by `learned_of` and `learned_for`; `None` for an unknown kind.
+fn learned_row(r: &rusqlite::Row) -> rusqlite::Result<Option<Learned>> {
+    let kind: String = r.get(1)?;
+    Ok(Kind::parse(&kind).map(|kind| Learned {
+        provider: r.get(0).unwrap_or_default(),
+        kind,
+        text: r.get(2).unwrap_or_default(),
+        reading: r.get(3).unwrap_or_default(),
+        level: r.get::<_, i64>(4).unwrap_or(0) as u32,
+        stage: r.get::<_, i64>(5).unwrap_or(0) as u8,
+    }))
+}
 
 /// `(kind, text)` → `(level, stage)`; see `UserDb::learned_index`.
 pub type LearnedIndex = HashMap<(Kind, String), (u32, u8)>;
@@ -153,10 +173,18 @@ impl UserDb {
         let tx = self.conn.unchecked_transaction()?;
         {
             let mut ins = tx.prepare_cached(
-                "INSERT OR REPLACE INTO wk_subjects (id, kind, text, level, hidden) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR REPLACE INTO wk_subjects (id, kind, text, reading, level, hidden)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             )?;
             for s in subjects {
-                ins.execute(params![s.id, s.kind.as_str(), s.text, s.level, s.hidden])?;
+                ins.execute(params![
+                    s.id,
+                    s.kind.as_str(),
+                    s.text,
+                    s.reading,
+                    s.level,
+                    s.hidden
+                ])?;
             }
         }
         tx.commit()?;
@@ -191,8 +219,8 @@ impl UserDb {
         let tx = self.conn.unchecked_transaction()?;
         tx.execute("DELETE FROM learned WHERE provider = 'wanikani'", [])?;
         let n = tx.execute(
-            "INSERT OR REPLACE INTO learned (provider, kind, text, level, stage)
-             SELECT 'wanikani', s.kind, s.text, s.level, coalesce(a.stage, 0)
+            "INSERT OR REPLACE INTO learned (provider, kind, text, reading, level, stage)
+             SELECT 'wanikani', s.kind, s.text, s.reading, s.level, coalesce(a.stage, 0)
              FROM wk_subjects s LEFT JOIN wk_assignments a ON a.subject_id = s.id AND a.hidden = 0
              WHERE s.hidden = 0 ORDER BY coalesce(a.stage, 0)",
             [],
@@ -235,32 +263,13 @@ impl UserDb {
     /// Everything one provider knows, vocabulary before kanji, by level and text.
     pub fn learned_of(&self, provider: &str) -> anyhow::Result<Vec<Learned>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT provider, kind, text, level, stage FROM learned WHERE provider = ?1
+            "SELECT provider, kind, text, reading, level, stage FROM learned WHERE provider = ?1
              ORDER BY kind DESC, level, text",
         )?;
-        let rows = stmt.query_map(params![provider], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, i64>(3)?,
-                r.get::<_, i64>(4)?,
-            ))
-        })?;
-        let mut out = Vec::new();
-        for row in rows {
-            let (provider, kind, text, level, stage) = row?;
-            if let Some(kind) = Kind::parse(&kind) {
-                out.push(Learned {
-                    provider,
-                    kind,
-                    text,
-                    level: level as u32,
-                    stage: stage as u8,
-                });
-            }
-        }
-        Ok(out)
+        let rows: Vec<Option<Learned>> = stmt
+            .query_map(params![provider], learned_row)?
+            .collect::<Result<_, _>>()?;
+        Ok(rows.into_iter().flatten().collect())
     }
 
     pub fn learned_count(&self, provider: &str) -> anyhow::Result<usize> {
@@ -273,35 +282,24 @@ impl UserDb {
     }
 
     /// The learned rows for any of `texts` (a headword, its forms, single kanji), any provider.
+    /// A word the provider spells differently (ふじ山) matches through its reading when its
+    /// kanji all occur in one of `texts` (#98).
     pub fn learned_for(&self, texts: &[String]) -> anyhow::Result<Vec<Learned>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
         let marks = vec!["?"; texts.len()].join(",");
         let mut stmt = self.conn.prepare_cached(&format!(
-            "SELECT provider, kind, text, level, stage FROM learned WHERE text IN ({marks})
+            "SELECT provider, kind, text, reading, level, stage FROM learned
+             WHERE text IN ({marks}) OR (kind = 'vocabulary' AND reading != '' AND reading IN ({marks}))
              ORDER BY provider, kind, text"
         ))?;
-        let rows = stmt.query_map(params_from_iter(texts.iter()), |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, i64>(3)?,
-                r.get::<_, i64>(4)?,
-            ))
-        })?;
+        let rows = stmt.query_map(params_from_iter(texts.iter().chain(texts.iter())), learned_row)?;
         let mut out = Vec::new();
         for row in rows {
-            let (provider, kind, text, level, stage) = row?;
-            if let Some(kind) = Kind::parse(&kind) {
-                out.push(Learned {
-                    provider,
-                    kind,
-                    text,
-                    level: level as u32,
-                    stage: stage as u8,
-                });
+            let Some(l) = row? else { continue };
+            if texts.contains(&l.text) || texts.iter().any(|t| accounts::spelled_like(&l.text, t)) {
+                out.push(l);
             }
         }
         Ok(out)
@@ -606,6 +604,33 @@ mod tests {
         assert_eq!(other.restore(&parsed).unwrap(), 1);
         assert_eq!(other.restore(&parsed).unwrap(), 0);
         assert_eq!(other.backup().unwrap(), backup);
+    }
+
+    #[test]
+    fn learned_for_matches_wanikani_spelling() {
+        let db = UserDb::open_in_memory().unwrap();
+        db.upsert_wk_subjects(&[Subject {
+            id: 1,
+            kind: Kind::Vocabulary,
+            text: "ふじ山".into(),
+            reading: "ふじさん".into(),
+            level: 31,
+            hidden: false,
+        }])
+        .unwrap();
+        db.rebuild_learned_wanikani().unwrap();
+        let hits = |forms: &[&str]| {
+            let forms: Vec<String> = forms.iter().map(|s| s.to_string()).collect();
+            db.learned_for(&forms).unwrap().len()
+        };
+        assert_eq!(
+            hits(&["富士山", "ふじさん"]),
+            1,
+            "the reading matches and 山 is in the form"
+        );
+        assert_eq!(hits(&["ふじ山"]), 1, "WaniKani's own spelling");
+        assert_eq!(hits(&["藤さん", "ふじさん"]), 0, "same reading, but no 山");
+        assert_eq!(hits(&["富士山"]), 0, "without the reading among the forms");
     }
 
     #[test]

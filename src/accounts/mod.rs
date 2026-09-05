@@ -37,8 +37,23 @@ pub struct Learned {
     pub provider: String,
     pub kind: Kind,
     pub text: String,
+    /// The provider's primary reading, "ふじさん" for ふじ山; empty for kanji and before the
+    /// sync that fetched it (#98).
+    pub reading: String,
     pub level: u32,
     pub stage: u8,
+}
+
+/// A CJK ideograph (or the iteration mark 々).
+pub fn is_kanji(c: char) -> bool {
+    matches!(c, '\u{4e00}'..='\u{9fff}' | '\u{3400}'..='\u{4dbf}' | '\u{f900}'..='\u{faff}' | '々')
+}
+
+/// Whether a provider's spelling of a word fits a dictionary form: every kanji in it appears in
+/// the form. ふじ山 fits 富士山 (and 不二山), not 藤さん; used when the reading matched but the
+/// characters did not (#98).
+pub fn spelled_like(text: &str, form: &str) -> bool {
+    text.chars().filter(|&c| is_kanji(c)).all(|c| form.contains(c))
 }
 
 /// WaniKani's stage groups; other providers map onto them.

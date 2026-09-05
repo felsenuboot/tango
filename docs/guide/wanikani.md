@@ -9,6 +9,12 @@ the synced data.
 
 ![The Accounts page, connected](../../data/screenshots/accounts.png)
 
+WaniKani spells some words differently from the dictionaries (ふじ山 where
+JMdict has 富士山). The sync keeps each item's reading, and a word whose
+spelling is no dictionary form is matched through the reading, provided its
+kanji occur in the dictionary form. After updating to a version that stores
+readings, the next sync fetches every subject again.
+
 ## The chips
 
 An entry then shows a WaniKani row: one chip per form the site knows, and

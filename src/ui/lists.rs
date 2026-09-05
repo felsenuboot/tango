@@ -13,7 +13,7 @@ use gtk::glib::{self, clone};
 use std::collections::{HashMap, HashSet};
 
 use super::window::Window;
-use crate::accounts::{Kind, Learned};
+use crate::accounts::{self, Kind, Learned};
 use crate::model::Entry;
 use crate::store::csv;
 use crate::store::export::{self, Layout};
@@ -611,6 +611,32 @@ impl ListsPage {
                         && !by_text.contains_key(key)
                     {
                         by_text.insert(key, entry.clone());
+                    }
+                }
+            }
+        }
+        // Items WaniKani spells differently from the dictionaries (ふじ山 for 富士山): the
+        // entries with their reading, the one whose kanji form fits the spelling (#98).
+        let missing: Vec<&Learned> = items
+            .iter()
+            .filter(|l| {
+                l.kind == Kind::Vocabulary && !l.reading.is_empty() && !by_text.contains_key(l.text.as_str())
+            })
+            .copied()
+            .collect();
+        let readings: Vec<String> = missing.iter().map(|l| l.reading.clone()).collect();
+        for chunk in readings.chunks(400) {
+            let found = win
+                .db()
+                .lookup(chunk, &enabled, chunk.len() * 8)
+                .unwrap_or_default();
+            for entry in found {
+                for l in &missing {
+                    if !by_text.contains_key(l.text.as_str())
+                        && entry.readings.contains(&l.reading)
+                        && entry.kanji.iter().any(|k| accounts::spelled_like(&l.text, k))
+                    {
+                        by_text.insert(l.text.as_str(), entry.clone());
                     }
                 }
             }

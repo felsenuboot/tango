@@ -53,6 +53,8 @@ pub struct Subject {
     pub id: i64,
     pub kind: Kind,
     pub text: String,
+    /// The primary reading, empty when WaniKani lists none.
+    pub reading: String,
     pub level: u32,
     pub hidden: bool,
 }
@@ -85,10 +87,22 @@ pub fn subjects(page: &Collection) -> Vec<Subject> {
                 _ => return None,
             };
             let text = r.data.get("characters")?.as_str()?.to_string();
+            let readings = r.data.get("readings").and_then(Value::as_array);
+            let reading = readings
+                .and_then(|rs| {
+                    rs.iter()
+                        .find(|x| x.get("primary").and_then(Value::as_bool).unwrap_or(false))
+                        .or(rs.first())
+                })
+                .and_then(|x| x.get("reading"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
             Some(Subject {
                 id: r.id,
                 kind,
                 text,
+                reading,
                 level: r.data.get("level").and_then(Value::as_u64).unwrap_or(0) as u32,
                 hidden: r.data.get("hidden_at").is_some_and(|h| !h.is_null()),
             })
@@ -249,12 +263,15 @@ mod tests {
                 id: 440,
                 kind: Kind::Kanji,
                 text: "一".into(),
+                reading: "いち".into(),
                 level: 1,
                 hidden: false
             }
         );
         assert_eq!(list[1].kind, Kind::Vocabulary);
         assert_eq!(list[1].text, "食べる");
+        assert_eq!(list[1].reading, "たべる");
+        assert_eq!(list[2].reading, ""); // kana vocabulary lists no readings
         assert_eq!(list[2].text, "こんにちは"); // kana vocabulary
         assert!(list[2].hidden);
     }

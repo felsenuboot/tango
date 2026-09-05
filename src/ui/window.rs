@@ -1136,6 +1136,7 @@ impl Window {
                     provider: "wanikani".into(),
                     kind: Kind::Vocabulary,
                     text: text.clone(),
+                    reading: String::new(),
                     level,
                     stage,
                 })
