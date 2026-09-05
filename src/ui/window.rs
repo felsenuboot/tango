@@ -32,6 +32,17 @@ use crate::store::user::{LearnedIndex, ListEntry, UserDb};
 
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 const RESULT_LIMIT: usize = 100;
+/// Views the back button remembers.
+const HISTORY_LIMIT: usize = 100;
+
+/// What the content pane can show, as the history keeps it.
+#[derive(Clone, PartialEq)]
+enum View {
+    Entry(Entry),
+    Kanji(char),
+    Sentence(Sentence),
+}
+
 /// Example sentences shown under an entry at first, and after "Show all".
 const EXAMPLES_FIRST: usize = 5;
 const EXAMPLES_ALL: usize = 100;
@@ -82,6 +93,11 @@ pub struct Window {
     /// The rows of a `#sentences` search instead; `found` is empty then.
     found_sentences: RefCell<Vec<Sentence>>,
     current: RefCell<Option<Entry>>,
+    /// What the content pane shows, and the views before it, for the back button (issue #72).
+    view: RefCell<Option<View>>,
+    history: RefCell<Vec<View>>,
+    /// Set while `go_back` re-shows a view, so it is not pushed again.
+    going_back: Cell<bool>,
     /// How many example sentences the entry shows: a few, or all after "Show all".
     example_limit: Cell<usize>,
     /// What the learning accounts know, for the `#known` filters; reloaded after a sync.
@@ -250,7 +266,7 @@ impl Window {
         let content_header = adw::HeaderBar::new();
         let back = gtk::Button::builder()
             .icon_name("go-previous-symbolic")
-            .tooltip_text("Back to the entry")
+            .tooltip_text("Back")
             .visible(false)
             .build();
         content_header.pack_start(&back);
@@ -352,6 +368,9 @@ impl Window {
             found: RefCell::new(Vec::new()),
             found_sentences: RefCell::new(Vec::new()),
             current: RefCell::new(None),
+            view: RefCell::new(None),
+            history: RefCell::new(Vec::new()),
+            going_back: Cell::new(false),
             example_limit: Cell::new(EXAMPLES_FIRST),
             learned: RefCell::new(learned),
             search_timer: Cell::new(None),
@@ -398,7 +417,7 @@ impl Window {
         this.back.connect_clicked(clone!(
             #[weak]
             this,
-            move |_| this.leave_kanji()
+            move |_| this.go_back()
         ));
         this.search_online.connect_clicked(clone!(
             #[weak]
@@ -462,6 +481,13 @@ impl Window {
             }
         ));
         this.win.add_action(&search_action);
+        let back_action = gio::SimpleAction::new("back", None);
+        back_action.connect_activate(clone!(
+            #[weak]
+            this,
+            move |_, _| this.go_back()
+        ));
+        this.win.add_action(&back_action);
         let star_action = gio::SimpleAction::new("star", None);
         star_action.connect_activate(clone!(
             #[weak]
@@ -1239,12 +1265,60 @@ impl Window {
     }
 
     pub fn show_entry(&self, entry: Entry) {
+        self.remember();
         self.example_limit.set(EXAMPLES_FIRST);
         self.render_entry(&entry);
+        *self.view.borrow_mut() = Some(View::Entry(entry.clone()));
         *self.current.borrow_mut() = Some(entry);
         self.stack.set_visible_child_name("entry");
-        self.back.set_visible(false);
+        self.refresh_back();
         self.refresh_star();
+    }
+
+    // -- history ----------------------------------------------------------------------------
+
+    /// Before another view is shown: the current one goes onto the history, unless this is the
+    /// back button re-showing an older one.
+    fn remember(&self) {
+        if self.going_back.get() {
+            return;
+        }
+        if let Some(view) = self.view.borrow().clone() {
+            let mut history = self.history.borrow_mut();
+            if history.last() != Some(&view) {
+                history.push(view);
+                if history.len() > HISTORY_LIMIT {
+                    history.remove(0);
+                }
+            }
+        }
+    }
+
+    fn refresh_back(&self) {
+        self.back.set_visible(!self.history.borrow().is_empty());
+    }
+
+    /// The view before this one: the entry a see-also link came from, the sentence a word was
+    /// opened from, the kanji page behind a "Words with this kanji" row.
+    pub fn go_back(&self) {
+        let Some(view) = self.history.borrow_mut().pop() else {
+            return;
+        };
+        self.going_back.set(true);
+        match view {
+            View::Entry(entry) => self.show_entry(entry),
+            View::Kanji(c) => self.show_kanji(c),
+            View::Sentence(s) => self.show_sentence(s),
+        }
+        self.going_back.set(false);
+        self.refresh_back();
+    }
+
+    /// After the dictionaries changed: the views in the history may not exist any more.
+    fn forget_history(&self) {
+        self.history.borrow_mut().clear();
+        *self.view.borrow_mut() = None;
+        self.refresh_back();
     }
 
     /// A "See also" / "Antonym" reference, "猫・ねこ・1": the entry for the form, with that
@@ -1324,10 +1398,12 @@ impl Window {
             log::error!("words of sentence {}: {e:#}", sentence.id);
             Vec::new()
         });
+        self.remember();
         self.sentence_view.show(&sentence, &words);
+        *self.view.borrow_mut() = Some(View::Sentence(sentence));
         *self.current.borrow_mut() = None;
         self.stack.set_visible_child_name("sentence");
-        self.back.set_visible(false);
+        self.refresh_back();
         self.refresh_star();
     }
 
@@ -1361,6 +1437,7 @@ impl Window {
 
     /// The kanji page for `literal`, with whatever kanji data is installed.
     pub fn show_kanji(&self, literal: char) {
+        self.remember();
         let kanji = self.db.kanji(literal).unwrap_or_else(|e| {
             log::error!("kanji {literal}: {e:#}");
             None
@@ -1388,18 +1465,12 @@ impl Window {
             &langs,
             learned.as_ref(),
         );
+        *self.view.borrow_mut() = Some(View::Kanji(literal));
         self.stack.set_visible_child_name("kanji");
-        self.back.set_visible(true);
+        self.refresh_back();
         if self.split.is_collapsed() {
             self.split.set_show_content(true);
         }
-    }
-
-    fn leave_kanji(&self) {
-        self.back.set_visible(false);
-        let has_entry = self.current.borrow().is_some();
-        self.stack
-            .set_visible_child_name(if has_entry { "entry" } else { "empty" });
     }
 
     /// Offers the kanji page when the query is a single kanji with data behind it.
@@ -1517,6 +1588,7 @@ impl Window {
             }
             if dictionary_job {
                 *this.current.borrow_mut() = None;
+                this.forget_history();
                 this.refresh_state();
                 this.radicals.refresh();
             }

@@ -172,6 +172,9 @@ desktop. Tick and delete when done; a bug goes into a new issue.
   the kanji diagram; WaniKani Pink and Wada 276 are light, the other Wada
   ones dark; a `~/.config/tango/style.css` with `.tango-headword { color: red; }`
   takes effect after a restart.
+- [ ] **#72 back.** Open 猫, click a "See also", click a kanji, click a word on
+  the kanji page: the back button (or Alt+Left) walks back through all of
+  it; after an import the history is empty.
 - [ ] **#11 WaniKani.** Preferences → Accounts: paste a read-only token and
   Connect; the row shows your username and level, the first sync runs in the
   background (about thirty requests, half a minute), then 食べる shows a

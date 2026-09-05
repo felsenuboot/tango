@@ -87,6 +87,7 @@ pub fn startup(app: &adw::Application) {
     app.set_accels_for_action("win.search", &["<Control>f", "<Control>k", "slash"]);
     app.set_accels_for_action("win.import", &["<Control>i"]);
     app.set_accels_for_action("win.star", &["<Control>d"]);
+    app.set_accels_for_action("win.back", &["<Alt>Left"]);
 }
 
 pub fn activate(app: &adw::Application) {

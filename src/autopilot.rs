@@ -10,6 +10,7 @@
 //!   wait                 wait until the job queue (downloads, imports) is empty
 //!   theme light|dark|system   switch the colour scheme for this run, without saving it
 //!   kanji <char>         show the kanji page for that character
+//!   back                 go back to the previous view (the header's back button)
 //!   radical <r>          toggle that radical on the Kanji sidebar page
 //!   hide on|off          hide (or grey out) the parts that no longer fit on the Kanji page
 //!   wanikani sync|disconnect|connect <token>   the WaniKani account (TANGO_WANIKANI_TOKEN works for sync)
@@ -100,6 +101,7 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
                 win.show_kanji(c);
             }
         }
+        "back" => win.go_back(),
         "sidebar" => win.show_sidebar_page(arg),
         "radical" => win.radicals_page().toggle(arg),
         "hide" => win.radicals_page().set_hide(arg == "on"),

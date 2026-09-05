@@ -41,6 +41,10 @@ Wikipedia or Wiktionary, and in Takoboto.
 
 ![No results, with the jisho.org button](../data/screenshots/no-results.png)
 
+Wherever you click through, the back button in the header (or Alt+Left)
+returns to the previous view: the entry a "See also" came from, the sentence
+a word was opened from, the kanji page behind one of its words.
+
 ## Two dictionaries
 
 JMdict lists its German, Dutch and French glosses as separate senses. Tango
