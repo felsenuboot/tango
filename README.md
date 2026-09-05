@@ -3,7 +3,7 @@
   <h1>Tango 単語</h1>
   <p>A Japanese dictionary for GNOME</p>
   <a href="https://github.com/felsenuboot/tango/actions/workflows/ci.yml"><img src="https://github.com/felsenuboot/tango/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/felsenuboot/tango/releases"><img src="https://img.shields.io/github/v/release/felsenuboot/tango?display_name=tag" alt="Release"></a>
+  <a href="https://github.com/felsenuboot/tango/releases"><img src="https://img.shields.io/badge/release-v0.5.0-4a86cf" alt="Release v0.5.0"></a>
 </div>
 
 Tango is an offline Japanese dictionary for the GNOME desktop, written in Rust

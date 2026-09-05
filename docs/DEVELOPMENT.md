@@ -27,6 +27,9 @@ directly.
 
 ## Releasing
 
+The release badge in the README is static (shields.io cannot read a private
+repository): bump its version text in the release pull request.
+
 Milestones are minor versions: `0.3 Search` ships as `v0.3.0`. When the last
 issue of a milestone closes:
 
