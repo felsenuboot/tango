@@ -60,7 +60,18 @@ impl SentenceView {
             .selectable(true)
             .css_classes(["tango-sentence-large"])
             .build();
-        self.body.append(&japanese);
+        if crate::tts::available() {
+            let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            japanese.set_hexpand(true);
+            line.append(&japanese);
+            line.append(&super::entry_view::speak_button(
+                &sentence.text,
+                "Read the sentence aloud",
+            ));
+            self.body.append(&line);
+        } else {
+            self.body.append(&japanese);
+        }
         if !sentence.translations.is_empty() {
             let column = gtk::Box::new(gtk::Orientation::Vertical, 8);
             for (lang, text) in &sentence.translations {

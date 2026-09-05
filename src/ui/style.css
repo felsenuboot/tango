@@ -8,6 +8,8 @@
   background-color: alpha(currentColor, 0.12);
 }
 .tango-pitch { font-size: 1.3em; color: @accent_color; }
+.tango-pitch-graph { color: @accent_color; }
+.tango-speak { min-height: 0; padding: 2px 6px; }
 /* Field, usage and dialect tags on a sense; notes under its glosses. */
 .tango-chip {
   font-size: 0.8em; padding: 1px 8px; border-radius: 99px;

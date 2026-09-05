@@ -50,7 +50,10 @@ a word was opened from, the kanji page behind one of its words.
 JMdict lists its German, Dutch and French glosses as separate senses. Tango
 lines them up with the English meanings where the sense counts match and
 lists the rest per language. Wadoku entries show the pitch accent beside the
-reading: ④ means the pitch drops after the fourth mora, ⓪ is flat.
+reading: ④ means the pitch drops after the fourth mora, ⓪ is flat, and a
+graph under the reading draws it over the moras. A speaker button reads the
+word or an example sentence aloud when speech-dispatcher has a Japanese
+voice.
 
 ![A Wadoku entry with its pitch accent](../data/screenshots/wadoku.png)
 

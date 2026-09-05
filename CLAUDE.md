@@ -33,6 +33,9 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   `TANGO_USER_DB` so they never touch Felix's lists.
 - **Roadmap order is in `docs/ROADMAP.md`** and as GitHub milestones 0.2–0.6.
   Work them in that order unless Felix says otherwise.
+- **TTS is the system's, never bundled:** `src/tts.rs` calls `spd-say -l ja`
+  when speech-dispatcher lists a Japanese voice (Felix has Open JTalk and
+  VOICEVOX behind it); without one the speaker buttons do not appear.
 - **Sources (0.5):** JMdict, Wadoku, JMnedict (names: exact matches and
   `#names` only), JLPT lists (opt-in, unofficial), KANJIDIC2, KanjiVG,
   RADKFILE, Tatoeba. Downloads and imports run through the job queue in

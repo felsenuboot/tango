@@ -187,7 +187,14 @@ impl EntryView {
             for pitch in &entry.pitch {
                 line.append(&pitch_chip(*pitch));
             }
+            if crate::tts::available() {
+                line.append(&speak_button(entry.reading(), "Read the word aloud"));
+            }
             self.body.append(&line);
+            // The accent as a picture, for the first reading (Wadoku gives the number for that one).
+            if let (Some(accent), false) = (entry.pitch.first(), entry.reading().is_empty()) {
+                self.body.append(&super::pitch::graph(entry.reading(), *accent));
+            }
         }
         if entry.kanji.len() > 1 {
             let also = format!("Also written {}", entry.kanji[1..].join("、"));
@@ -266,9 +273,17 @@ pub fn sentence_block(s: &Sentence) -> gtk::Box {
         .xalign(0.0)
         .wrap(true)
         .selectable(true)
+        .hexpand(true)
         .css_classes(["tango-sentence"])
         .build();
-    block.append(&japanese);
+    if crate::tts::available() {
+        let line = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        line.append(&japanese);
+        line.append(&speak_button(&s.text, "Read the sentence aloud"));
+        block.append(&line);
+    } else {
+        block.append(&japanese);
+    }
     for (lang, text) in &s.translations {
         let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         line.append(&lang_chip(lang));
@@ -278,6 +293,19 @@ pub fn sentence_block(s: &Sentence) -> gtk::Box {
         block.append(&line);
     }
     block
+}
+
+/// A speaker button that reads `text` aloud through speech-dispatcher.
+pub fn speak_button(text: &str, tooltip: &str) -> gtk::Button {
+    let button = gtk::Button::builder()
+        .icon_name("audio-volume-high-symbolic")
+        .tooltip_text(tooltip)
+        .valign(gtk::Align::Center)
+        .css_classes(["flat", "tango-speak"])
+        .build();
+    let text = text.to_string();
+    button.connect_clicked(move |_| crate::tts::speak(&text));
+    button
 }
 
 /// The "EN" / "DE" chip in front of a gloss or a translation.

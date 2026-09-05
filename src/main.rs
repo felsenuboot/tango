@@ -17,6 +17,7 @@ mod model;
 mod search;
 mod secrets;
 mod store;
+mod tts;
 mod ui;
 
 use gtk::{gio, glib, prelude::*};

@@ -8,6 +8,7 @@ pub mod entry_view;
 pub mod jobs;
 pub mod kanji_view;
 pub mod lists;
+pub mod pitch;
 pub mod preferences;
 pub mod radicals;
 pub mod sentence_view;

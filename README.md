@@ -23,6 +23,9 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   (書かれました → 書く: passive, polite, past); a pasted sentence is cut into
   words; `#common`, `#verb` and friends filter; `"quotes"` and `*` wildcards
   do what they say. Everything answers in a few milliseconds.
+- 🔊 **Pronunciation.** The pitch accent as a graph over the moras, from
+  Wadoku's accent numbers, and a speaker button on readings and example
+  sentences when speech-dispatcher has a Japanese voice (nothing bundled).
 - 📖 **Two dictionaries.** JMdict from the EDRDG, with its German, Dutch and
   French glosses lined up with the English meanings, and every detail it
   carries: usage and field tags, dialects, notes, loanword origins, "see
@@ -175,6 +178,9 @@ desktop. Tick and delete when done; a bug goes into a new issue.
 - [ ] **#72 back.** Open 猫, click a "See also", click a kanji, click a word on
   the kanji page: the back button (or Alt+Left) walks back through all of
   it; after an import the history is empty.
+- [ ] **#69 pronunciation.** Open 猫 (Wadoku installed): a pitch graph under the
+  reading; the speaker buttons on the reading and on example sentences read
+  through your VOICEVOX / Open JTalk voice; with `TANGO_NO_TTS=1` they are gone.
 - [ ] **#11 WaniKani.** Preferences → Accounts: paste a read-only token and
   Connect; the row shows your username and level, the first sync runs in the
   background (about thirty requests, half a minute), then 食べる shows a
