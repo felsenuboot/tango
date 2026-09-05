@@ -579,9 +579,12 @@ impl Window {
             glib::Propagation::Proceed,
             move |win| {
                 {
+                    // The default size is the unmaximized one: GTK updates it on user resizes
+                    // and leaves it alone while the window is maximized or fullscreen (#103).
+                    let (width, height) = win.default_size();
                     let mut cfg = this.config.borrow_mut();
-                    cfg.window.width = win.width();
-                    cfg.window.height = win.height();
+                    cfg.window.width = width;
+                    cfg.window.height = height;
                     cfg.window.maximized = win.is_maximized();
                     cfg.save();
                 }
