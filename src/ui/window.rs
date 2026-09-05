@@ -1371,13 +1371,10 @@ impl Window {
         for sentence in self.found_sentences.borrow().iter() {
             self.results.append(&sentence_row(sentence));
         }
+        let listed = self.user.listed().unwrap_or_default();
         for hit in self.found.borrow().iter() {
-            let listed = self
-                .user
-                .lists_with(&hit.entry.source, hit.entry.id)
-                .map(|l| !l.is_empty())
-                .unwrap_or(false);
-            self.results.append(&result_row(hit, &langs, listed));
+            let on_a_list = listed.contains(&(hit.entry.source.clone(), hit.entry.id));
+            self.results.append(&result_row(hit, &langs, on_a_list));
         }
         self.results.invalidate_headers();
         // Grid views for the results (#83): instead of opening the first hit, the hits become

@@ -4,7 +4,7 @@
 //! A list entry remembers the entry's headword, reading and first gloss, so a list still reads
 //! after the dictionary file was rebuilt or a source removed, and so exports need no lookup.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::accounts::wanikani::{Assignment, Subject};
 use crate::accounts::{self, Kind, Learned};
@@ -470,6 +470,16 @@ impl UserDb {
         Ok(found.is_some())
     }
 
+    /// Every `(source, seq)` that is on some list, for marking result rows in one query
+    /// rather than one per row (#108).
+    pub fn listed(&self) -> anyhow::Result<HashSet<(String, i64)>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT DISTINCT source, seq FROM list_entries")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Ids of the lists that hold the entry.
     pub fn lists_with(&self, source: &str, seq: i64) -> anyhow::Result<Vec<i64>> {
         let mut stmt = self
@@ -588,6 +598,8 @@ mod tests {
         db.add(fav.id, &cat(), "Katze").unwrap(); // twice is once
         assert!(db.contains(fav.id, "jmdict", 1467640).unwrap());
         assert_eq!(db.lists_with("jmdict", 1467640).unwrap(), [fav.id]);
+        assert!(db.listed().unwrap().contains(&("jmdict".to_string(), 1467640)));
+        assert_eq!(db.listed().unwrap().len(), 1);
         assert_eq!(db.favourites().unwrap().entries, 1);
         db.set_note(fav.id, "jmdict", 1467640, " has a tail ").unwrap();
         let entries = db.entries(fav.id).unwrap();

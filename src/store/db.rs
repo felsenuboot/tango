@@ -1051,8 +1051,9 @@ impl Database {
             }
         }
 
-        // (sense rowid, index into entries, index into that entry's senses)
-        let mut sense_ids: Vec<(i64, usize, usize)> = Vec::new();
+        // Sense rowid → (index into entries, index into that entry's senses), so a gloss finds
+        // its sense in one lookup rather than a search over every sense loaded (#108).
+        let mut sense_ids: HashMap<i64, (usize, usize)> = HashMap::new();
         let mut stmt = self.conn.prepare(&format!(
             "SELECT id, entry_id, parts, misc, fields, info, dial, origin, xref, ant, stag FROM senses
              WHERE entry_id IN ({marks}) ORDER BY entry_id, pos"
@@ -1090,7 +1091,7 @@ impl Database {
                     antonyms: split(&ant),
                     only_for: split(&stag),
                 });
-                sense_ids.push((sid, i, e.senses.len() - 1));
+                sense_ids.insert(sid, (i, e.senses.len() - 1));
             }
         }
         if !sense_ids.is_empty() {
@@ -1098,7 +1099,7 @@ impl Database {
             let mut stmt = self.conn.prepare(&format!(
                 "SELECT sense_id, lang, text FROM glosses WHERE sense_id IN ({smarks}) ORDER BY sense_id, pos"
             ))?;
-            let sids = sense_ids.iter().map(|s| s.0);
+            let sids = sense_ids.keys().copied();
             for row in stmt.query_map(params_from_iter(sids), |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
@@ -1107,7 +1108,7 @@ impl Database {
                 ))
             })? {
                 let (sid, lang, text) = row?;
-                if let Some(&(_, ei, si)) = sense_ids.iter().find(|s| s.0 == sid) {
+                if let Some(&(ei, si)) = sense_ids.get(&sid) {
                     entries[ei].1.senses[si].glosses.push(Gloss { lang, text });
                 }
             }
