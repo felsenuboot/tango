@@ -105,7 +105,7 @@ bundled with the app.
 
 The 単語 calligraphy on the start screen is set in
 [Yuji Syuku](https://github.com/Kinutafontfactory/Yuji) (SIL Open Font
-License 1.1); only the two glyph outlines ship, as an SVG.
+License 1.1); only the two glyph outlines ship (`data/calligraphy.svg`).
 
 ## Roadmap
 

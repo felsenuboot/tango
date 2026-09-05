@@ -61,8 +61,6 @@ package() {
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_app.svg"
   install -Dm644 "data/icons/hicolor/symbolic/apps/$_app-symbolic.svg" \
     "$pkgdir/usr/share/icons/hicolor/symbolic/apps/$_app-symbolic.svg"
-  install -Dm644 "data/icons/hicolor/scalable/apps/$_app-calligraphy-symbolic.svg" \
-    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_app-calligraphy-symbolic.svg"
   local s
   for s in "${_sizes[@]}"; do
     install -Dm644 "icon-$s.png" "$pkgdir/usr/share/icons/hicolor/${s}x${s}/apps/$_app.png"

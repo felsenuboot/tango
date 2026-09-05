@@ -1,9 +1,5 @@
-/* Start screen (#80): the calligraphy is a symbolic SVG painted in the accent colour;
-   src/ui/start.rs adds the background-image rule with the file's location. */
-.tango-calligraphy {
-  color: @accent_bg_color;
-  background-size: contain; background-repeat: no-repeat; background-position: center;
-}
+/* Start screen (#80): the calligraphy is drawn with cairo in this colour. */
+.tango-calligraphy { color: @accent_bg_color; }
 .tango-calligraphy-fallback { font-size: 110px; color: @accent_bg_color; }
 /* Entry view */
 .tango-headword { font-size: 2.6em; font-weight: 300; }

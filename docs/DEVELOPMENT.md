@@ -251,18 +251,21 @@ magick -delay 280 -loop 0 start.png entry.png deinflect.png sentence.png wadoku.
 
 ## The start screen calligraphy
 
-`data/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango-calligraphy-symbolic.svg`
-is 単語 set in Yuji Syuku (OFL), flattened to plain paths so GTK can recolour it
-like any symbolic icon. `src/ui/start.rs` paints it as a CSS background with
-`-gtk-recolor`, which follows the theme's accent colour; a `gtk::Image` would
-render it into a square. To regenerate it, fetch the font (not installed
-anywhere, nothing but the outlines ships) and run
+`data/calligraphy.svg` is 単語 set in Yuji Syuku (OFL), flattened to plain
+paths. `src/ui/start.rs` compiles it in and draws the paths with cairo in a
+`DrawingArea`, filled with the CSS `color` (the accent), so it keeps its
+aspect ratio at any size and scale factor; GTK's symbolic-icon pipeline
+renders into a square and squashed it (#88). To regenerate it, fetch the
+font (not installed anywhere, nothing but the outlines ships) and run
 
 ```
 curl -LO https://github.com/google/fonts/raw/main/ofl/yujisyuku/YujiSyuku-Regular.ttf
-tools/calligraphy.py YujiSyuku-Regular.ttf 単語 \
-  data/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango-calligraphy-symbolic.svg
+tools/calligraphy.py YujiSyuku-Regular.ttf 単語 data/calligraphy.svg
+rsvg-convert -w 560 --stylesheet <(echo 'path{fill:#d9553f}') -o data/calligraphy.png data/calligraphy.svg
 ```
+
+The PNG is the tour's header; `tools/calligraphy.py` writes only the M, L, C
+and Z commands the parser in `start.rs` understands.
 
 ## Hyprland and popups
 

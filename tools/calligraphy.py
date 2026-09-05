@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Renders text in a font file to a flat symbolic SVG (paths only, tight viewBox).
 
-    tools/calligraphy.py YujiSyuku-Regular.ttf 単語 \
-        data/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango-calligraphy-symbolic.svg
+    tools/calligraphy.py YujiSyuku-Regular.ttf 単語 data/calligraphy.svg
 
 Needs pango-view, rsvg-convert and Pillow. The font is not installed anywhere: a throwaway
 fontconfig file points at its directory. cairo writes glyphs as <symbol>/<use> pairs with
-style attributes; GTK's symbolic recolouring wants plain <path> elements, so they are
+style attributes; src/ui/start.rs parses plain <path> elements with M/L/C/Z only, so they are
 flattened, rounded to two decimals and cropped to the ink's bounding box.
 """
 

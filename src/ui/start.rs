@@ -1,18 +1,18 @@
 //! The start screen (issue #80): the name of the app as a dictionary entry, with 単語 in
 //! brush calligraphy beside it, the way DenMail introduces itself.
 //!
-//! The calligraphy is a symbolic SVG in `data/icons` (glyph outlines of Yuji Syuku, OFL).
-//! It is painted as a CSS background through `-gtk-recolor`, which fills a symbolic icon
-//! with the node's `color`; the stylesheet sets that to the accent colour, so every theme
-//! gets its own tint and dark or light needs no second file. A `gtk::Image` would do the
-//! recolouring too, but it renders icons into a square, and this one is twice as wide as
-//! it is high.
+//! The calligraphy is `data/calligraphy.svg`, the glyph outlines of Yuji Syuku (OFL),
+//! compiled in and drawn with cairo in a `gtk::DrawingArea`, filled with the widget's CSS
+//! `color` (the accent colour, see style.css). Drawing it ourselves keeps the aspect ratio
+//! at any size and scale factor: GTK renders symbolic icons into a square before it
+//! recolours them, which squashed a 2:1 image (issue #88), and a `gtk::Image` would report a
+//! square size too.
 
 use adw::prelude::*;
-use gtk::{gdk, glib};
+use gtk::{cairo, glib};
 
-/// Icon name of the calligraphy; the SVG sits next to the app icon.
-const CALLIGRAPHY: &str = "io.github.felsenuboot.Tango-calligraphy-symbolic";
+/// The calligraphy: only `<path transform="translate(x y)" d="M … C … L … Z">` elements.
+const SVG: &str = include_str!("../../data/calligraphy.svg");
 /// Size of the calligraphy in logical pixels, the SVG's own aspect ratio.
 const WIDTH: i32 = 312;
 const HEIGHT: i32 = 150;
@@ -97,54 +97,170 @@ fn line(text: &str) -> gtk::Label {
         .build()
 }
 
-/// The calligraphy, or the two characters in a large font when the SVG is not installed.
+/// The calligraphy, drawn with cairo; the plain characters if the SVG does not parse.
 fn calligraphy() -> gtk::Widget {
-    let Some(display) = gdk::Display::default() else {
-        return fallback();
+    let Some(art) = Art::parse(SVG) else {
+        log::warn!("calligraphy SVG did not parse; showing plain text");
+        return gtk::Label::builder()
+            .label("単語")
+            .css_classes(["tango-calligraphy-fallback"])
+            .accessible_role(gtk::AccessibleRole::Presentation)
+            .build()
+            .upcast();
     };
-    let theme = gtk::IconTheme::for_display(&display);
-    if !theme.has_icon(CALLIGRAPHY) {
-        log::warn!("calligraphy icon {CALLIGRAPHY} not found; showing plain text");
-        return fallback();
-    }
-    let icon = theme.lookup_icon(
-        CALLIGRAPHY,
-        &[],
-        HEIGHT,
-        1,
-        gtk::TextDirection::Ltr,
-        gtk::IconLookupFlags::empty(),
-    );
-    let Some(uri) = icon.file().map(|f| f.uri()) else {
-        return fallback();
-    };
-    // The file's location is only known at run time (checkout or install prefix), so this
-    // one rule is added here rather than in style.css.
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(&format!(
-        ".tango-calligraphy {{ background-image: -gtk-recolor(url(\"{uri}\")); }}"
-    ));
-    gtk::style_context_add_provider_for_display(
-        &display,
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
-    gtk::Box::builder()
-        .width_request(WIDTH)
-        .height_request(HEIGHT)
+    let area = gtk::DrawingArea::builder()
+        .content_width(WIDTH)
+        .content_height(HEIGHT)
         .halign(gtk::Align::Center)
         .valign(gtk::Align::Center)
         .css_classes(["tango-calligraphy"])
         .accessible_role(gtk::AccessibleRole::Presentation)
-        .build()
-        .upcast()
+        .build();
+    area.set_draw_func(move |area, cr, width, height| {
+        let scale = (f64::from(width) / art.width).min(f64::from(height) / art.height);
+        cr.translate(
+            (f64::from(width) - art.width * scale) / 2.0,
+            (f64::from(height) - art.height * scale) / 2.0,
+        );
+        cr.scale(scale, scale);
+        cr.translate(-art.x, -art.y);
+        let colour = area.color();
+        cr.set_source_rgba(
+            f64::from(colour.red()),
+            f64::from(colour.green()),
+            f64::from(colour.blue()),
+            f64::from(colour.alpha()),
+        );
+        art.draw(cr);
+        let _ = cr.fill();
+    });
+    area.upcast()
 }
 
-fn fallback() -> gtk::Widget {
-    gtk::Label::builder()
-        .label("単語")
-        .css_classes(["tango-calligraphy-fallback"])
-        .accessible_role(gtk::AccessibleRole::Presentation)
-        .build()
-        .upcast()
+/// One glyph: where it sits, and its outline as absolute path commands.
+struct Glyph {
+    dx: f64,
+    dy: f64,
+    commands: Vec<Command>,
+}
+
+enum Command {
+    MoveTo(f64, f64),
+    LineTo(f64, f64),
+    CurveTo(f64, f64, f64, f64, f64, f64),
+    Close,
+}
+
+/// The parsed SVG: its viewBox and glyphs.
+struct Art {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    glyphs: Vec<Glyph>,
+}
+
+impl Art {
+    /// Reads the small subset of SVG that tools/calligraphy.py writes. `None` on anything
+    /// unexpected rather than a panic: the file is ours, but a bad regeneration should not
+    /// take the start screen down.
+    fn parse(svg: &str) -> Option<Art> {
+        let view_box = attribute(svg, "viewBox=\"")?;
+        let mut numbers = view_box.split_whitespace().map(str::parse::<f64>);
+        let (x, y, width, height) = (
+            numbers.next()?.ok()?,
+            numbers.next()?.ok()?,
+            numbers.next()?.ok()?,
+            numbers.next()?.ok()?,
+        );
+        let mut glyphs = Vec::new();
+        let mut rest = svg;
+        while let Some(at) = rest.find("<path ") {
+            let element = &rest[at..];
+            let end = element.find("/>")?;
+            let element = &element[..end];
+            let translate = attribute(element, "translate(")?;
+            let mut offsets = translate.split_whitespace().map(str::parse::<f64>);
+            let (dx, dy) = (offsets.next()?.ok()?, offsets.next()?.ok()?);
+            let commands = parse_path(attribute(element, "d=\"")?)?;
+            glyphs.push(Glyph { dx, dy, commands });
+            rest = &rest[at + end..];
+        }
+        (!glyphs.is_empty()).then_some(Art {
+            x,
+            y,
+            width,
+            height,
+            glyphs,
+        })
+    }
+
+    fn draw(&self, cr: &cairo::Context) {
+        for glyph in &self.glyphs {
+            cr.save().ok();
+            cr.translate(glyph.dx, glyph.dy);
+            for command in &glyph.commands {
+                match *command {
+                    Command::MoveTo(x, y) => cr.move_to(x, y),
+                    Command::LineTo(x, y) => cr.line_to(x, y),
+                    Command::CurveTo(x1, y1, x2, y2, x, y) => cr.curve_to(x1, y1, x2, y2, x, y),
+                    Command::Close => cr.close_path(),
+                }
+            }
+            cr.restore().ok();
+        }
+    }
+}
+
+/// The value after `key` up to the closing `"` or `)`.
+fn attribute<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    let start = text.find(key)? + key.len();
+    let rest = &text[start..];
+    let end = rest.find(['"', ')'])?;
+    Some(&rest[..end])
+}
+
+/// Absolute M, L, C and Z only, as cairo's SVG surface writes them.
+fn parse_path(d: &str) -> Option<Vec<Command>> {
+    let mut commands = Vec::new();
+    let mut tokens = d.split_whitespace().peekable();
+    let number = |tokens: &mut std::iter::Peekable<std::str::SplitWhitespace>| -> Option<f64> {
+        tokens.next()?.parse().ok()
+    };
+    while let Some(token) = tokens.next() {
+        match token {
+            "M" => commands.push(Command::MoveTo(number(&mut tokens)?, number(&mut tokens)?)),
+            "L" => commands.push(Command::LineTo(number(&mut tokens)?, number(&mut tokens)?)),
+            "C" => commands.push(Command::CurveTo(
+                number(&mut tokens)?,
+                number(&mut tokens)?,
+                number(&mut tokens)?,
+                number(&mut tokens)?,
+                number(&mut tokens)?,
+                number(&mut tokens)?,
+            )),
+            "Z" => commands.push(Command::Close),
+            _ => return None,
+        }
+    }
+    Some(commands)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shipped_calligraphy_parses() {
+        let art = Art::parse(SVG).expect("data/calligraphy.svg parses");
+        assert_eq!(art.glyphs.len(), 2, "単 and 語");
+        assert!(art.width > art.height, "wider than high");
+        assert!(art.glyphs.iter().all(|g| g.commands.len() > 50));
+    }
+
+    #[test]
+    fn unexpected_commands_are_refused() {
+        assert!(parse_path("M 1 2 Q 3 4 5 6").is_none());
+        assert_eq!(parse_path("M 1 2 L 3 4 Z").map(|c| c.len()), Some(3));
+    }
 }
