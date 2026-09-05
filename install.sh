@@ -26,6 +26,7 @@ sed "s|^Exec=.*|Exec=$BIN/tango %U|" "$HERE/data/$APP.desktop" > "$APPS/$APP.des
 chmod 644 "$APPS/$APP.desktop"
 install -m644 "$HERE/data/icons/hicolor/scalable/apps/$APP.svg" "$ICONS/scalable/apps/$APP.svg"
 install -m644 "$HERE/data/icons/hicolor/symbolic/apps/$APP-symbolic.svg" "$ICONS/symbolic/apps/$APP-symbolic.svg"
+install -m644 "$HERE/data/icons/hicolor/scalable/apps/$APP-calligraphy-symbolic.svg" "$ICONS/scalable/apps/$APP-calligraphy-symbolic.svg"
 # Fixed-size PNGs for docks and taskbars that do not rasterise SVG themselves.
 if command -v rsvg-convert >/dev/null 2>&1; then
   for s in 16 22 24 32 48 64 96 128 256 512; do

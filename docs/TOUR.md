@@ -4,6 +4,13 @@ Every screen below is a headless capture of the app with the real
 dictionaries installed, German as the preferred language, dark theme unless
 said otherwise.
 
+## Start
+
+The app introduces itself as a dictionary entry: 単語, *tango*, is the word
+for "word". "Look it up in Tango" runs that search.
+
+![The start screen: 単語 in brush calligraphy beside its entry](../data/screenshots/start.png)
+
 ## Search
 
 Type kana, kanji, romaji, English or German. Exact matches and common words

@@ -125,6 +125,10 @@ Tatoeba sentences are one click each on the Dictionaries page in Preferences.
 Everything is downloaded on request from the Dictionaries page; nothing is
 bundled with the app.
 
+The 単語 calligraphy on the start screen is set in
+[Yuji Syuku](https://github.com/Kinutafontfactory/Yuji) (SIL Open Font
+License 1.1); only the two glyph outlines ship, as an SVG.
+
 ## Roadmap
 
 External links, and the WaniKani and MaruMori integrations. Tracked as

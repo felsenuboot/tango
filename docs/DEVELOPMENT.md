@@ -244,9 +244,24 @@ favourites, and `XDG_CONFIG_HOME` pointing at a config with
 into `data/screenshots/`; the GIF is built from the same files:
 
 ```
-magick -delay 280 -loop 0 entry.png deinflect.png sentence.png wadoku.png examples.png details.png \
+magick -delay 280 -loop 0 start.png entry.png deinflect.png sentence.png wadoku.png examples.png details.png \
   names.png kanji.png radicals.png wanikani-entry.png wanikani-list.png lists.png dictionaries.png \
   theme-pink.png light.png -resize 960x540 -layers Optimize tour.gif
+```
+
+## The start screen calligraphy
+
+`data/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango-calligraphy-symbolic.svg`
+is 単語 set in Yuji Syuku (OFL), flattened to plain paths so GTK can recolour it
+like any symbolic icon. `src/ui/start.rs` paints it as a CSS background with
+`-gtk-recolor`, which follows the theme's accent colour; a `gtk::Image` would
+render it into a square. To regenerate it, fetch the font (not installed
+anywhere, nothing but the outlines ships) and run
+
+```
+curl -LO https://github.com/google/fonts/raw/main/ofl/yujisyuku/YujiSyuku-Regular.ttf
+tools/calligraphy.py YujiSyuku-Regular.ttf 単語 \
+  data/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango-calligraphy-symbolic.svg
 ```
 
 ## Hyprland and popups

@@ -217,12 +217,19 @@ impl Window {
         let entry_view = EntryView::new();
         let kanji_view = KanjiView::new();
         let sentence_view = SentenceView::new();
-        let empty = adw::StatusPage::builder()
-            .title("Tango")
-            .description("Look up a word in Japanese, English or German.")
-            .icon_name(crate::APP_ID)
-            .vexpand(true)
-            .build();
+        // "Look it up" on the start screen searches 単語 in Tango itself.
+        let start = super::start::build(clone!(
+            #[weak]
+            search,
+            #[weak]
+            sidebar_stack,
+            move || {
+                sidebar_stack.set_visible_child_name("search");
+                search.set_text("単語");
+                search.grab_focus();
+            }
+        ));
+        let empty = start.widget.clone();
         let no_dictionary = adw::StatusPage::builder()
             .title("No dictionary yet")
             .description(format!(
@@ -324,6 +331,11 @@ impl Window {
         win.add_breakpoint(narrow);
         let breakpoint = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 640sp").unwrap());
         breakpoint.add_setter(&split, "collapsed", Some(&true.to_value()));
+        breakpoint.add_setter(
+            &start.row,
+            "orientation",
+            Some(&gtk::Orientation::Vertical.to_value()),
+        );
         breakpoint.add_setter(
             &switcher,
             "policy",

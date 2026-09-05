@@ -12,6 +12,7 @@ pub mod pitch;
 pub mod preferences;
 pub mod radicals;
 pub mod sentence_view;
+pub mod start;
 pub mod strokes;
 pub mod theme;
 pub mod window;
