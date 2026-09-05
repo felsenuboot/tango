@@ -52,6 +52,22 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $APT_DEPS
       - run: cargo test
 
+  # RustSec advisories against the lockfile; the job fails on a vulnerability, warnings
+  # (unmaintained crates) only show in the check's summary.
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest

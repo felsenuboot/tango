@@ -1,17 +1,23 @@
-# Keeps the SHA-pinned actions and the Cargo dependencies current by pull request.
+# Weekly dependency updates, one grouped pull request per ecosystem (#112).
 version: 2
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      actions:
-        patterns: ["*"]
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+      day: monday
     groups:
-      cargo:
+      crates:
         patterns: ["*"]
+    commit-message:
+      prefix: "deps"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
