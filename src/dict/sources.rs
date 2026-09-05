@@ -25,6 +25,8 @@ pub struct Source {
     pub extra_files: &'static [(&'static str, &'static str)],
     pub licence: &'static str,
     pub licence_url: &'static str,
+    /// Who holds the rights, for the About dialog's legal sections (#110).
+    pub copyright: &'static str,
     /// Rough download size, for the status texts.
     pub size_mb: u32,
     /// For sources whose download URL changes (dated files): finds the current one from the
@@ -43,6 +45,7 @@ pub const JMDICT: Source = Source {
     extra_files: &[],
     licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
+    copyright: "© Electronic Dictionary Research and Development Group",
     size_mb: 22,
     latest: None,
 };
@@ -58,6 +61,7 @@ pub const WADOKU: Source = Source {
     extra_files: &[],
     licence: "Wadoku dictionary licence (free software with attribution)",
     licence_url: "https://www.wadoku.de/wiki/display/WAD/W%C3%B6rterbuch+Lizenz",
+    copyright: "© Ulrich Apel and the Wadoku.de contributors",
     size_mb: 25,
     latest: Some(crate::dict::wadoku::latest_url),
 };
@@ -73,6 +77,7 @@ pub const JMNEDICT: Source = Source {
     extra_files: &[],
     licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
+    copyright: "© Electronic Dictionary Research and Development Group",
     size_mb: 13,
     latest: None,
 };
@@ -106,6 +111,7 @@ pub const JLPT: Source = Source {
     ],
     licence: "Creative Commons Attribution-ShareAlike 4.0 (lists CC BY, Jonathan Waller)",
     licence_url: "https://github.com/stephenmk/yomitan-jlpt-vocab",
+    copyright: "© Jonathan Waller (the lists), Stephen Kraus (the JMdict numbers)",
     size_mb: 1,
     latest: None,
 };
@@ -120,6 +126,7 @@ pub const KANJIDIC: Source = Source {
     extra_files: &[],
     licence: "Creative Commons Attribution-ShareAlike 4.0 (EDRDG licence)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
+    copyright: "© Electronic Dictionary Research and Development Group",
     size_mb: 2,
     latest: None,
 };
@@ -135,6 +142,7 @@ pub const KANJIVG: Source = Source {
     extra_files: &[],
     licence: "Creative Commons Attribution-ShareAlike 3.0",
     licence_url: "https://kanjivg.tagaini.net/",
+    copyright: "© Ulrich Apel",
     size_mb: 4,
     latest: Some(crate::dict::kanjivg::latest_url),
 };
@@ -149,6 +157,7 @@ pub const RADKFILE: Source = Source {
     extra_files: &[],
     licence: "EDRDG licence (Creative Commons Attribution-ShareAlike 4.0)",
     licence_url: "https://www.edrdg.org/edrdg/licence.html",
+    copyright: "© Electronic Dictionary Research and Development Group",
     size_mb: 1,
     latest: None,
 };
@@ -186,6 +195,7 @@ pub const TATOEBA: Source = Source {
     ],
     licence: "Creative Commons Attribution 2.0 France",
     licence_url: "https://tatoeba.org/en/terms_of_use",
+    copyright: "© the Tatoeba contributors",
     size_mb: 45,
     latest: None,
 };

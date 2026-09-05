@@ -202,11 +202,21 @@ fn show_about() {
         .website("https://github.com/felsenuboot/tango")
         .comments("単語 – a Japanese dictionary for GNOME.")
         .build();
+    // Every source asks for attribution; one section each, from the registry, so a new source
+    // is credited without touching this (#110).
+    for source in crate::dict::sources::SOURCES {
+        about.add_legal_section(
+            source.name,
+            Some(source.copyright),
+            gtk::License::Custom,
+            Some(&format!("{}\n{}", source.licence, source.licence_url)),
+        );
+    }
     about.add_legal_section(
-        "JMdict",
-        Some("© Electronic Dictionary Research and Development Group"),
+        "Yuji Syuku (the start screen calligraphy)",
+        Some("© Kinuta Font Factory"),
         gtk::License::Custom,
-        Some("Creative Commons Attribution-ShareAlike 4.0\nhttps://www.edrdg.org/edrdg/licence.html"),
+        Some("SIL Open Font License 1.1\nhttps://github.com/google/fonts/tree/main/ofl/yujisyuku"),
     );
     with_window(|w| about.present(Some(&w.win)));
 }
