@@ -18,9 +18,13 @@ const WIDTH: i32 = 312;
 const HEIGHT: i32 = 150;
 
 pub struct Start {
-    pub widget: gtk::Box,
-    /// Calligraphy and entry side by side; the window's narrow breakpoint stacks them.
+    /// The page, scrolling vertically when the window is too short for it.
+    pub widget: gtk::ScrolledWindow,
+    /// Calligraphy and entry side by side; the window's narrow breakpoints stack them (#91).
     pub row: gtk::Box,
+    /// The calligraphy, when the SVG parsed; the breakpoints shrink it through its
+    /// `content-width` and `content-height`.
+    pub art: Option<gtk::DrawingArea>,
 }
 
 /// Builds the page. `lookup` runs when the "Look it up" link is activated.
@@ -30,7 +34,9 @@ pub fn build(lookup: impl Fn() + 'static) -> Start {
         .halign(gtk::Align::Center)
         .valign(gtk::Align::Center)
         .build();
-    row.append(&calligraphy());
+    let art = calligraphy();
+    row.append(&art);
+    let art = art.downcast::<gtk::DrawingArea>().ok();
 
     let column = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -44,6 +50,8 @@ pub fn build(lookup: impl Fn() + 'static) -> Start {
              <span size='small' alpha='60%'>noun</span>",
         )
         .xalign(0.0)
+        .wrap(true)
+        .max_width_chars(30)
         .build();
     column.append(&head);
     column.append(&line("1. word; vocabulary"));
@@ -69,9 +77,10 @@ pub fn build(lookup: impl Fn() + 'static) -> Start {
         .label("Look up a word in Japanese, English or German.")
         .justify(gtk::Justification::Center)
         .wrap(true)
+        .max_width_chars(40)
         .css_classes(["dim-label"])
         .build();
-    let widget = gtk::Box::builder()
+    let page = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(36)
         .halign(gtk::Align::Center)
@@ -83,9 +92,15 @@ pub fn build(lookup: impl Fn() + 'static) -> Start {
         .margin_bottom(24)
         .css_classes(["tango-start"])
         .build();
-    widget.append(&row);
-    widget.append(&hint);
-    Start { widget, row }
+    page.append(&row);
+    page.append(&hint);
+    let widget = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .child(&page)
+        .vexpand(true)
+        .build();
+    Start { widget, row, art }
 }
 
 fn line(text: &str) -> gtk::Label {

@@ -328,19 +328,27 @@ impl Window {
             "policy",
             Some(&adw::ViewSwitcherPolicy::Narrow.to_value()),
         );
-        win.add_breakpoint(narrow);
+        // The start screen's calligraphy and entry fit side by side only above 1030 px; below
+        // that they stack and the calligraphy shrinks (#91). The collapsed layout repeats it.
         let breakpoint = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 640sp").unwrap());
         breakpoint.add_setter(&split, "collapsed", Some(&true.to_value()));
-        breakpoint.add_setter(
-            &start.row,
-            "orientation",
-            Some(&gtk::Orientation::Vertical.to_value()),
-        );
         breakpoint.add_setter(
             &switcher,
             "policy",
             Some(&adw::ViewSwitcherPolicy::Narrow.to_value()),
         );
+        for b in [&narrow, &breakpoint] {
+            b.add_setter(
+                &start.row,
+                "orientation",
+                Some(&gtk::Orientation::Vertical.to_value()),
+            );
+            if let Some(art) = &start.art {
+                b.add_setter(art, "content-width", Some(&240.to_value()));
+                b.add_setter(art, "content-height", Some(&116.to_value()));
+            }
+        }
+        win.add_breakpoint(narrow);
         win.add_breakpoint(breakpoint);
 
         let learned = user.learned_index().unwrap_or_else(|e| {
