@@ -252,9 +252,23 @@ pub fn download_url(source: &Source) -> anyhow::Result<String> {
     latest(&page).with_context(|| format!("no download found on {}", source.url))
 }
 
-/// Fetches `url` into `dest`, via a `.part` file so a partial download is never mistaken for a whole one.
+/// Fetches `url` into `dest`, via a `.part` file so a partial download is never mistaken for a
+/// whole one; a failed download takes its `.part` with it (#111).
 pub fn download(url: &str, dest: &Path, progress: Progress) -> anyhow::Result<PathBuf> {
     let part = dest.with_extension("part");
+    let result = download_to(url, &part, progress);
+    if result.is_err()
+        && let Err(e) = std::fs::remove_file(&part)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        log::warn!("could not delete {}: {e}", part.display());
+    }
+    result?;
+    std::fs::rename(&part, dest)?;
+    Ok(dest.to_path_buf())
+}
+
+fn download_to(url: &str, part: &Path, progress: Progress) -> anyhow::Result<()> {
     let mut response = agent()
         .get(url)
         .call()
@@ -265,7 +279,7 @@ pub fn download(url: &str, dest: &Path, progress: Progress) -> anyhow::Result<Pa
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok());
     let mut reader = response.body_mut().with_config().limit(u64::MAX).reader();
-    let mut out = std::fs::File::create(&part).with_context(|| format!("creating {}", part.display()))?;
+    let mut out = std::fs::File::create(part).with_context(|| format!("creating {}", part.display()))?;
     let mut buf = vec![0u8; 256 * 1024];
     let mut done = 0u64;
     loop {
@@ -278,9 +292,7 @@ pub fn download(url: &str, dest: &Path, progress: Progress) -> anyhow::Result<Pa
         progress(done, total);
     }
     out.flush()?;
-    drop(out);
-    std::fs::rename(&part, dest)?;
-    Ok(dest.to_path_buf())
+    Ok(())
 }
 
 #[cfg(test)]
@@ -306,6 +318,19 @@ mod tests {
         assert!(timeouts.connect.is_some());
         assert!(timeouts.recv_response.is_some());
         assert!(timeouts.recv_body.is_some());
+    }
+
+    #[test]
+    fn a_failed_download_leaves_no_part_file() {
+        let dir = std::env::temp_dir().join(format!("tango-download-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("nothing.gz");
+        // Port 9 (discard) refuses at once on any machine without the service.
+        let result = download("http://127.0.0.1:9/nothing.gz", &dest, &mut |_, _| {});
+        assert!(result.is_err());
+        assert!(!dest.exists());
+        assert!(!dest.with_extension("part").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

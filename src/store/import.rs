@@ -58,9 +58,12 @@ fn import_wadoku(db: &Database, source: &Source, path: &Path, report: Report) ->
         Ok(())
     })?;
     db.insert(&batch)?;
-    db.finish_source(source.id, version.as_deref(), &now_iso8601(), count as i64)?;
+    // The index first, the count last: the count is what marks the source installed, and a
+    // source installed without its glosses indexed would be missing from every English search
+    // until the next import (#111).
     report("Indexing the glosses…".into(), None);
     db.rebuild_gloss_index()?;
+    db.finish_source(source.id, version.as_deref(), &now_iso8601(), count as i64)?;
     report(format!("Imported {count} entries."), Some(1.0));
     log::info!(
         "imported {count} {} entries (version {}) from {}",
@@ -89,9 +92,12 @@ fn import_jmdict(db: &Database, source: &Source, path: &Path, report: Report) ->
         Ok(())
     })?;
     db.insert(&batch)?;
-    db.finish_source(source.id, version.as_deref(), &now_iso8601(), count as i64)?;
+    // The index first, the count last: the count is what marks the source installed, and a
+    // source installed without its glosses indexed would be missing from every English search
+    // until the next import (#111).
     report("Indexing the glosses…".into(), None);
     db.rebuild_gloss_index()?;
+    db.finish_source(source.id, version.as_deref(), &now_iso8601(), count as i64)?;
     report(format!("Imported {count} entries."), Some(1.0));
     log::info!(
         "imported {count} {} entries (version {}) from {}",
@@ -307,14 +313,14 @@ pub fn download_and_import(
     let dest = cache.join(source.filename);
     report(format!("Looking up {}…", source.name), None);
     let url = sources::download_url(source)?;
-    // Dated downloads keep their date next to the fixed-name cache copy, as the version.
-    if let Some(version) = kanjivg::version_from_name(&url) {
-        let _ = std::fs::write(dest.with_extension("version"), version);
-    }
-    // Exports rebuilt under a fixed name are versioned by their download date.
-    if matches!(source.id, "tatoeba" | "jlpt") {
-        let _ = std::fs::write(dest.with_extension("version"), &now_iso8601()[..10]);
-    }
+    // Dated downloads keep their date next to the fixed-name cache copy, as the version;
+    // exports rebuilt under a fixed name are versioned by their download date. Written once
+    // the files are there, so a failed download does not leave a date next to the old file.
+    let version = if matches!(source.id, "tatoeba" | "jlpt") {
+        Some(now_iso8601()[..10].to_string())
+    } else {
+        kanjivg::version_from_name(&url)
+    };
     let files = std::iter::once((url.as_str(), dest.clone()))
         .chain(source.extra_files.iter().map(|(u, name)| (*u, cache.join(name))));
     let total_files = 1 + source.extra_files.len();
@@ -337,6 +343,9 @@ pub fn download_and_import(
             None => report(format!("Downloading {what}… {} MB", done / 1_000_000), None),
         })?;
     }
+    if let Some(version) = version {
+        let _ = std::fs::write(dest.with_extension("version"), version);
+    }
     import_file(db, source, &dest, report)
 }
 
@@ -346,10 +355,18 @@ pub fn remove(db: &Database, source: &Source, cache: &Path, report: Report) -> a
     db.remove_source(source.id)?;
     let names = std::iter::once(source.filename).chain(source.extra_files.iter().map(|(_, n)| *n));
     for name in names {
-        match std::fs::remove_file(cache.join(name)) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => log::warn!("could not delete the cached {name}: {e}"),
+        // The file, a half download, and the date next to it.
+        let file = cache.join(name);
+        for path in [
+            file.clone(),
+            file.with_extension("part"),
+            file.with_extension("version"),
+        ] {
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => log::warn!("could not delete the cached {}: {e}", path.display()),
+            }
         }
     }
     db.rebuild_gloss_index()?;
@@ -627,10 +644,15 @@ mod tests {
         import_file(&db, &sources::JMDICT, &sample, &mut |_, _| {}).unwrap();
         let cache = std::env::temp_dir().join(format!("tango-cache-{}", std::process::id()));
         std::fs::create_dir_all(&cache).unwrap();
-        std::fs::write(cache.join(sources::JMDICT.filename), b"stale").unwrap();
+        let file = cache.join(sources::JMDICT.filename);
+        std::fs::write(&file, b"stale").unwrap();
+        std::fs::write(file.with_extension("part"), b"half").unwrap();
+        std::fs::write(file.with_extension("version"), b"2026-01-01").unwrap();
         remove(&db, &sources::JMDICT, &cache, &mut |_, _| {}).unwrap();
         assert_eq!(db.entry_count().unwrap(), 0);
-        assert!(!cache.join(sources::JMDICT.filename).exists());
+        assert!(!file.exists());
+        assert!(!file.with_extension("part").exists());
+        assert!(!file.with_extension("version").exists());
         std::fs::remove_dir_all(cache).unwrap();
     }
 }
