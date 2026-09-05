@@ -37,7 +37,15 @@ pub struct ListsPage {
     current: Cell<Option<i64>>,
     lists: RefCell<Vec<List>>,
     entries: RefCell<Vec<ListEntry>>,
+    /// The WaniKani list after the filters, and how many of its items have rows so far; the
+    /// rest come in pages of `PAGE` through the "Show more" row (issue #73).
+    wk_items: RefCell<Vec<Learned>>,
+    wk_shown: Cell<usize>,
+    more_row: RefCell<Option<gtk::ListBoxRow>>,
 }
+
+/// Rows the WaniKani list builds at a time.
+const PAGE: usize = 200;
 
 impl ListsPage {
     pub fn new() -> Rc<Self> {
@@ -188,6 +196,9 @@ impl ListsPage {
             current: Cell::new(None),
             lists: RefCell::new(Vec::new()),
             entries: RefCell::new(Vec::new()),
+            wk_items: RefCell::new(Vec::new()),
+            wk_shown: Cell::new(0),
+            more_row: RefCell::new(None),
         });
         this.install_actions();
         for d in [&this.kind, &this.level, &this.stage] {
@@ -215,9 +226,13 @@ impl ListsPage {
             #[weak]
             this,
             move |_, row| {
-                let entry = this.entries.borrow().get(row.index() as usize).cloned();
-                if let (Some(entry), Some(win)) = (entry, this.window()) {
-                    win.open_list_entry(&entry);
+                let index = row.index() as usize;
+                let entry = this.entries.borrow().get(index).cloned();
+                match (entry, this.window()) {
+                    (Some(entry), Some(win)) => win.open_list_entry(&entry),
+                    // Past the entries sits the "Show more" row.
+                    (None, Some(win)) if this.current.get() == Some(WANIKANI_LIST) => this.append_page(&win),
+                    _ => {}
                 }
             }
         ));
@@ -296,70 +311,106 @@ impl ListsPage {
             .unwrap_or_default();
         self.title.set_text(&name);
         self.filters.set_visible(id == WANIKANI_LIST);
-        let (entries, learned): (Vec<ListEntry>, Vec<Option<Learned>>) = if id == WANIKANI_LIST {
-            self.wanikani_rows(&win)
-        } else {
-            let entries = win.user().entries(id).unwrap_or_else(|e| {
-                log::error!("cannot read list {id}: {e:#}");
-                Vec::new()
-            });
-            let n = entries.len();
-            (entries, vec![None; n])
-        };
         super::clear_rows(&self.entries_box);
-        for (e, l) in entries.iter().zip(&learned) {
-            let mut title = glib::markup_escape_text(&e.headword).to_string();
-            if !e.reading.is_empty() && e.reading != e.headword {
-                title.push_str(&format!(
-                    "  <span alpha='70%'>{}</span>",
-                    glib::markup_escape_text(&e.reading)
-                ));
-            }
-            let mut subtitle = glib::markup_escape_text(&e.gloss).to_string();
-            if !e.note.is_empty() {
-                subtitle.push_str(&format!(" · <i>{}</i>", glib::markup_escape_text(&e.note)));
-            }
-            let row = adw::ActionRow::builder()
-                .activatable(true)
-                .use_markup(true)
-                .title(&title)
-                .subtitle(&subtitle)
-                .title_lines(1)
-                .subtitle_lines(1)
-                .build();
-            if let Some(l) = l {
-                let chip = super::entry_view::learned_chip(l, "");
-                chip.set_valign(gtk::Align::Center);
-                row.add_suffix(&chip);
-            } else {
-                let remove = gtk::Button::builder()
-                    .icon_name("list-remove-symbolic")
-                    .valign(gtk::Align::Center)
-                    .css_classes(["flat"])
-                    .tooltip_text("Remove from this list")
-                    .build();
-                let (source, seq) = (e.source.clone(), e.seq);
-                remove.connect_clicked(clone!(
-                    #[weak]
-                    win,
-                    move |_| {
-                        if let Err(e) = win.user().remove(id, &source, seq) {
-                            log::error!("cannot remove from list {id}: {e:#}");
-                        }
-                        win.lists_changed();
-                    }
-                ));
-                row.add_suffix(&remove);
-            }
-            self.entries_box.append(&row);
+        *self.more_row.borrow_mut() = None;
+        self.entries.borrow_mut().clear();
+        if id == WANIKANI_LIST {
+            *self.wk_items.borrow_mut() = self.filtered_wanikani(&win);
+            self.wk_shown.set(0);
+            self.append_page(&win);
+            return;
+        }
+        let entries = win.user().entries(id).unwrap_or_else(|e| {
+            log::error!("cannot read list {id}: {e:#}");
+            Vec::new()
+        });
+        for e in &entries {
+            self.entries_box.append(&self.row(&win, id, e, None));
         }
         *self.entries.borrow_mut() = entries;
     }
 
-    /// The WaniKani list after the filters: words resolved to their dictionary entries where
-    /// one has the form (the first of the enabled sources wins), kanji as rows of their own,
-    /// each with its learned item for the chip.
-    fn wanikani_rows(&self, win: &Rc<Window>) -> (Vec<ListEntry>, Vec<Option<Learned>>) {
+    /// One row: headword and reading, gloss and note, then the learned chip or a remove button.
+    fn row(&self, win: &Rc<Window>, id: i64, e: &ListEntry, l: Option<&Learned>) -> adw::ActionRow {
+        let mut title = glib::markup_escape_text(&e.headword).to_string();
+        if !e.reading.is_empty() && e.reading != e.headword {
+            title.push_str(&format!(
+                "  <span alpha='70%'>{}</span>",
+                glib::markup_escape_text(&e.reading)
+            ));
+        }
+        let mut subtitle = glib::markup_escape_text(&e.gloss).to_string();
+        if !e.note.is_empty() {
+            subtitle.push_str(&format!(" · <i>{}</i>", glib::markup_escape_text(&e.note)));
+        }
+        let row = adw::ActionRow::builder()
+            .activatable(true)
+            .use_markup(true)
+            .title(&title)
+            .subtitle(&subtitle)
+            .title_lines(1)
+            .subtitle_lines(1)
+            .build();
+        if let Some(l) = l {
+            let chip = super::entry_view::learned_chip(l, "");
+            chip.set_valign(gtk::Align::Center);
+            row.add_suffix(&chip);
+        } else {
+            let remove = gtk::Button::builder()
+                .icon_name("list-remove-symbolic")
+                .valign(gtk::Align::Center)
+                .css_classes(["flat"])
+                .tooltip_text("Remove from this list")
+                .build();
+            let (source, seq) = (e.source.clone(), e.seq);
+            remove.connect_clicked(clone!(
+                #[weak]
+                win,
+                move |_| {
+                    if let Err(e) = win.user().remove(id, &source, seq) {
+                        log::error!("cannot remove from list {id}: {e:#}");
+                    }
+                    win.lists_changed();
+                }
+            ));
+            row.add_suffix(&remove);
+        }
+        row
+    }
+
+    /// The next page of the WaniKani list: resolves those items only, appends their rows, and
+    /// a "Show more" row while items remain. Building every row at once froze the window with a
+    /// real account's thousands of items.
+    fn append_page(&self, win: &Rc<Window>) {
+        if let Some(more) = self.more_row.borrow_mut().take() {
+            self.entries_box.remove(&more);
+        }
+        let total = self.wk_items.borrow().len();
+        let from = self.wk_shown.get();
+        let to = (from + PAGE).min(total);
+        let page: Vec<Learned> = self.wk_items.borrow()[from..to].to_vec();
+        let (entries, learned) = self.wanikani_rows(win, &page);
+        for (e, l) in entries.iter().zip(&learned) {
+            self.entries_box
+                .append(&self.row(win, WANIKANI_LIST, e, l.as_ref()));
+        }
+        self.entries.borrow_mut().extend(entries);
+        self.wk_shown.set(to);
+        if to < total {
+            let more = adw::ActionRow::builder()
+                .activatable(true)
+                .title(format!("Show {} more", PAGE.min(total - to)))
+                .subtitle(format!(
+                    "{to} of {total} shown; the filters above narrow the list"
+                ))
+                .build();
+            self.entries_box.append(&more);
+            *self.more_row.borrow_mut() = Some(more.upcast::<gtk::ListBoxRow>());
+        }
+    }
+
+    /// The synced WaniKani items that pass the kind, level and stage filters.
+    fn filtered_wanikani(&self, win: &Rc<Window>) -> Vec<Learned> {
         let all = win.user().learned_of("wanikani").unwrap_or_else(|e| {
             log::error!("cannot read the WaniKani items: {e:#}");
             Vec::new()
@@ -385,12 +436,18 @@ impl ListsPage {
             }
         };
         let wanted_stage = self.stage.selected();
-        let items: Vec<&Learned> = all
-            .iter()
+        all.into_iter()
             .filter(|l| kind.is_none_or(|k| l.kind == k))
             .filter(|l| level.is_none_or(|n| l.level == n))
             .filter(|l| wanted_stage == 0 || stage_row(l.stage) == wanted_stage)
-            .collect();
+            .collect()
+    }
+
+    /// `items` resolved for display: words to their dictionary entries where one has the form
+    /// (the first of the enabled sources wins), kanji as rows of their own, each with its
+    /// learned item for the chip.
+    fn wanikani_rows(&self, win: &Rc<Window>, items: &[Learned]) -> (Vec<ListEntry>, Vec<Option<Learned>>) {
+        let items: Vec<&Learned> = items.iter().collect();
         // One lookup per chunk of forms, then the first entry that carries each form.
         let enabled = win.config().borrow().enabled_sources();
         let langs = win.config().borrow().gloss_languages.clone();
@@ -591,7 +648,8 @@ impl ListsPage {
         };
         let name = self.title.text().to_string();
         let items = if id == WANIKANI_LIST {
-            self.entries.borrow().clone()
+            let all = self.wk_items.borrow().clone();
+            self.wanikani_rows(&win, &all).0
         } else {
             match win.user().entries(id) {
                 Ok(e) => e,
