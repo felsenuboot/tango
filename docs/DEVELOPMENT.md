@@ -68,7 +68,7 @@ go out as patch releases (`v0.3.1`). The Arch package takes its version from
 | `src/search/query.rs` | the box syntax: `#tags`, `"exact"` quotes, `*`/`?` wildcards |
 | `src/search/romaji.rs` | romaji → hiragana/katakana (Hepburn and the usual typing variants) |
 | `src/search/deinflect.rs` | rule table from inflected verbs and adjectives back to dictionary forms |
-| `src/store/db.rs` | SQLite schema (v3: `sources`, entries per source, FTS5 over glosses), insert, load, lookup, search |
+| `src/store/db.rs` | SQLite schema (v9: `sources`, entries per source, `form_kanji` for the kanji page, FTS5 over glosses), insert, load, lookup, search |
 | `src/store/user.rs` | the user database: word lists, migrated forward, JSON backup |
 | `src/store/csv.rs` | just enough CSV for list import and export |
 | `src/store/export.rs` | list files in other tools' layouts (CSV, Anki, Kitsun, Takoboto) and reading Takoboto exports |

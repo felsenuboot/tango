@@ -1,8 +1,9 @@
 //! The dictionary database: one SQLite file, plain SQL.
 //!
-//! Schema v8: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
+//! Schema v9: `sources` (what is installed), `entries` (one row per dictionary entry, keyed by the
 //! source and the source's own number, with its pitch accent), `forms` (kanji and readings),
-//! `senses`, `glosses`, the kanji tables (`kanji` from KANJIDIC2, `kanji_strokes` from KanjiVG,
+//! `senses`, `glosses`, `form_kanji` (which kanji each kanji form contains, for the kanji page's
+//! "words with this kanji", #105), the kanji tables (`kanji` from KANJIDIC2, `kanji_strokes` from KanjiVG,
 //! `kanji_radicals` from RADKFILE), the Tatoeba tables (`sentences`, `sentence_links`,
 //! `sentence_words` and the trigram index `sentence_fts`), and
 //! `gloss_fts`, an FTS5 index over the gloss text. Headwords and readings are prefix searches on
@@ -25,7 +26,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 
 use crate::model::{Entry, Gloss, Kanji, Radical, Sense, Sentence, SentenceWord, Strokes};
 
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -51,6 +52,12 @@ CREATE TABLE IF NOT EXISTS forms (
     info TEXT NOT NULL DEFAULT '',    -- ke_inf / re_inf tags, newline-separated
     restr TEXT NOT NULL DEFAULT ''    -- re_restr: the kanji forms a reading goes with
 );
+-- One row per kanji per kanji form: `words_with` is an index lookup instead of a scan (#105).
+CREATE TABLE IF NOT EXISTS form_kanji (
+    literal TEXT NOT NULL,
+    entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+    PRIMARY KEY (literal, entry_id)
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS senses (
     id INTEGER PRIMARY KEY,
     entry_id INTEGER NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
@@ -603,8 +610,8 @@ impl Database {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// Entries whose kanji forms contain `literal`, common first: "words containing this kanji".
-    /// A scan over the forms (no substring index), so it is used on demand, not while typing.
+    /// Entries whose kanji forms contain `literal`, common first, then short: "words containing
+    /// this kanji". Through `form_kanji`, which the import fills (#105).
     pub fn words_with(&self, literal: char, limit: usize, sources: &[String]) -> anyhow::Result<Vec<Entry>> {
         if sources.is_empty() {
             return Ok(Vec::new());
@@ -612,14 +619,15 @@ impl Database {
         let priority = source_priority(sources.len());
         let members = vec!["?"; sources.len()].join(",");
         let mut values: Vec<Value> = sources.iter().map(|s| Value::Text(s.clone())).collect();
-        values.push(Value::Text(format!("*{}*", glob_escape(&literal.to_string()))));
+        values.push(Value::Text(literal.to_string()));
         values.extend(sources.iter().map(|s| Value::Text(s.clone())));
         values.push(Value::Integer(limit as i64));
         let sql = format!(
-            "SELECT f.entry_id, e.common, {priority} AS prio, min(length(f.text)) AS len
-             FROM forms f INDEXED BY forms_text JOIN entries e ON e.id = f.entry_id
-             WHERE f.kind = 'k' AND f.text GLOB ? AND e.source IN ({members})
-             GROUP BY f.entry_id ORDER BY e.common DESC, prio, len, f.entry_id LIMIT ?"
+            "SELECT k.entry_id, e.common, {priority} AS prio, min(length(f.text)) AS len
+             FROM form_kanji k JOIN entries e ON e.id = k.entry_id
+                  JOIN forms f ON f.entry_id = k.entry_id AND f.kind = 'k'
+             WHERE k.literal = ? AND e.source IN ({members})
+             GROUP BY k.entry_id ORDER BY e.common DESC, prio, len, k.entry_id LIMIT ?"
         );
         let mut stmt = self.conn.prepare_cached(&sql)?;
         let ids: Vec<i64> = stmt
@@ -899,6 +907,8 @@ impl Database {
             let mut ins_entry = tx
                 .prepare_cached("INSERT INTO entries (source, seq, common, pitch) VALUES (?1, ?2, ?3, ?4)")?;
             let mut ins_form = tx.prepare_cached("INSERT INTO forms VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
+            let mut ins_kanji =
+                tx.prepare_cached("INSERT OR IGNORE INTO form_kanji (literal, entry_id) VALUES (?1, ?2)")?;
             let mut ins_sense = tx.prepare_cached(
                 "INSERT INTO senses (entry_id, pos, parts, misc, fields, info, dial, origin, xref, ant, stag)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
@@ -912,6 +922,9 @@ impl Database {
                     |lists: &[Vec<String>], i: usize| lists.get(i).map(|l| l.join(SEP)).unwrap_or_default();
                 for (i, k) in e.kanji.iter().enumerate() {
                     ins_form.execute(params![entry_id, "k", i as i64, k, joined(&e.kanji_info, i), ""])?;
+                    for c in k.chars().filter(|c| crate::accounts::is_kanji(*c)) {
+                        ins_kanji.execute(params![c.to_string(), entry_id])?;
+                    }
                 }
                 for (i, r) in e.readings.iter().enumerate() {
                     ins_form.execute(params![
@@ -1528,6 +1541,10 @@ mod tests {
         let words = db.words_with('猫', 10, &jmdict_only()).unwrap();
         assert!(words.iter().all(|e| e.kanji.iter().any(|k| k.contains('猫'))));
         assert!(words.len() >= 2);
+        assert_eq!(words[0].id, 1467640); // the common one first
+        assert!(db.words_with('犬', 10, &jmdict_only()).unwrap().is_empty());
+        db.remove_source("jmdict").unwrap();
+        assert!(db.words_with('猫', 10, &jmdict_only()).unwrap().is_empty()); // cascaded
 
         db.remove_source("kanjidic").unwrap();
         assert!(!db.has_kanji_data().unwrap());
@@ -1593,7 +1610,7 @@ mod tests {
             .query_row("SELECT count(*) FROM glosses", [], |r| r.get(0))
             .unwrap();
         assert_eq!(stale, 0);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("8"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("9"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1619,7 +1636,7 @@ mod tests {
         db.begin_source("jmdict", WHEN).unwrap();
         db.insert(&sample_entries()).unwrap(); // the new columns exist
         assert_eq!(db.entry_count().unwrap(), 7);
-        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("8"));
+        assert_eq!(db.meta("schema").unwrap().as_deref(), Some("9"));
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }
