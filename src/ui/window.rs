@@ -1778,7 +1778,7 @@ impl Window {
             "Connecting WaniKani".into(),
             move |report| {
                 report("Checking the token…".into(), None);
-                let account = wanikani::user(&token)?;
+                let account = wanikani::user(&token, report)?;
                 secrets::store(wanikani::PROVIDER, &token)?;
                 let db = UserDb::open(&user_path)?;
                 db.set_sync_state(wanikani::PROVIDER, "username", &account.username)?;

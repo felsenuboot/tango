@@ -6,6 +6,8 @@
 //! The HTTP side is a thin layer over `fetch`; everything after the JSON is parsed is plain
 //! functions over the data, which the tests drive with fixtures.
 
+use std::time::Duration;
+
 use anyhow::{Context, bail};
 use serde::Deserialize;
 use serde_json::Value;
@@ -133,36 +135,67 @@ pub fn assignments(page: &Collection) -> Vec<Assignment> {
         .collect()
 }
 
-fn get(token: &str, url: &str) -> anyhow::Result<Value> {
-    // A page is a megabyte at most: one minute for the whole request (#100).
-    let mut response = crate::dict::sources::agent()
-        .get(url)
-        .config()
-        .timeout_global(Some(std::time::Duration::from_secs(60)))
-        .build()
-        .header("Authorization", &format!("Bearer {token}"))
-        .header("Wanikani-Revision", REVISION)
-        .call()
-        .map_err(|e| match e {
-            ureq::Error::StatusCode(401) => anyhow::anyhow!("WaniKani rejected the token (401)"),
-            ureq::Error::StatusCode(429) => {
-                anyhow::anyhow!("WaniKani rate limit hit (429); try again in a minute")
+/// How long to wait after a 429, from its `Retry-After` header (seconds; WaniKani sends it):
+/// a minute when it is missing or unreadable, five at most.
+fn retry_after(header: Option<&str>) -> Duration {
+    let seconds = header
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(60)
+        .clamp(1, 300);
+    Duration::from_secs(seconds)
+}
+
+/// Sixty requests a minute; a full first sync is about twenty, so two waits cover a user who
+/// connects twice in a row or syncs right after another WaniKani client (#109).
+const RETRIES: usize = 2;
+
+fn get(token: &str, url: &str, report: Report) -> anyhow::Result<Value> {
+    for attempt in 0..=RETRIES {
+        // A page is a megabyte at most: one minute for the whole request (#100). Statuses are
+        // not errors here, so a 429's Retry-After can be read.
+        let mut response = crate::dict::sources::agent()
+            .get(url)
+            .config()
+            .timeout_global(Some(Duration::from_secs(60)))
+            .http_status_as_error(false)
+            .build()
+            .header("Authorization", &format!("Bearer {token}"))
+            .header("Wanikani-Revision", REVISION)
+            .call()
+            .with_context(|| format!("GET {url}"))?;
+        match response.status().as_u16() {
+            200 => {
+                let text = response
+                    .body_mut()
+                    .read_to_string()
+                    .with_context(|| format!("reading {url}"))?;
+                return serde_json::from_str(&text).with_context(|| format!("parsing the reply from {url}"));
             }
-            other => anyhow::anyhow!("{other}"),
-        })
-        .with_context(|| format!("GET {url}"))?;
-    let text = response
-        .body_mut()
-        .read_to_string()
-        .with_context(|| format!("reading {url}"))?;
-    let value: Value =
-        serde_json::from_str(&text).with_context(|| format!("parsing the reply from {url}"))?;
-    Ok(value)
+            401 => bail!("WaniKani rejected the token (401)"),
+            429 if attempt < RETRIES => {
+                let wait = retry_after(
+                    response
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|v| v.to_str().ok()),
+                );
+                report(
+                    format!("WaniKani: rate limit, waiting {} s…", wait.as_secs()),
+                    None,
+                );
+                log::info!("wanikani: 429 for {url}, waiting {} s", wait.as_secs());
+                std::thread::sleep(wait);
+            }
+            429 => bail!("WaniKani rate limit hit (429) three times; try again in a minute"),
+            status => bail!("WaniKani answered {status} for {url}"),
+        }
+    }
+    unreachable!("the loop returns or bails")
 }
 
 /// Checks the token and tells who it belongs to.
-pub fn user(token: &str) -> anyhow::Result<Account> {
-    let value = get(token, &format!("{API}/user"))?;
+pub fn user(token: &str, report: Report) -> anyhow::Result<Account> {
+    let value = get(token, &format!("{API}/user"), report)?;
     let data = value.get("data").context("no user data in the reply")?;
     Ok(Account {
         username: data
@@ -179,19 +212,20 @@ pub fn user(token: &str) -> anyhow::Result<Account> {
 fn each_page(
     token: &str,
     url: &str,
-    mut f: impl FnMut(&Collection) -> anyhow::Result<()>,
+    report: Report,
+    mut f: impl FnMut(&Collection, Report) -> anyhow::Result<()>,
 ) -> anyhow::Result<Option<String>> {
     let mut next = Some(url.to_string());
     let mut newest: Option<String> = None;
     while let Some(url) = next.take() {
-        let page: Collection = serde_json::from_value(get(token, &url)?)
+        let page: Collection = serde_json::from_value(get(token, &url, report)?)
             .with_context(|| format!("unexpected reply from {url}"))?;
         if let Some(stamp) = &page.data_updated_at
             && newest.as_ref().is_none_or(|n| stamp > n)
         {
             newest = Some(stamp.clone());
         }
-        f(&page)?;
+        f(&page, report)?;
         next = page.pages.next_url;
     }
     Ok(newest)
@@ -212,7 +246,7 @@ pub fn sync(token: &str, db: &UserDb, report: Report) -> anyhow::Result<SyncStat
         "{API}/subjects?types=kanji,vocabulary,kana_vocabulary{}",
         since("subjects")?
     );
-    let newest = each_page(token, &url, |page| {
+    let newest = each_page(token, &url, report, |page, report| {
         let batch = subjects(page);
         stats.subjects += batch.len();
         db.upsert_wk_subjects(&batch)?;
@@ -227,7 +261,7 @@ pub fn sync(token: &str, db: &UserDb, report: Report) -> anyhow::Result<SyncStat
         "{API}/assignments?subject_types=kanji,vocabulary,kana_vocabulary{}",
         since("assignments")?
     );
-    let newest = each_page(token, &url, |page| {
+    let newest = each_page(token, &url, report, |page, report| {
         let batch = assignments(page);
         stats.assignments += batch.len();
         db.upsert_wk_assignments(&batch)?;
@@ -251,6 +285,19 @@ mod tests {
 
     const SUBJECTS: &str = include_str!("../../tests/fixtures/wanikani-subjects.json");
     const ASSIGNMENTS: &str = include_str!("../../tests/fixtures/wanikani-assignments.json");
+
+    #[test]
+    fn retry_after_is_seconds_with_a_default_and_a_cap() {
+        assert_eq!(retry_after(Some("30")), Duration::from_secs(30));
+        assert_eq!(retry_after(Some(" 5 ")), Duration::from_secs(5));
+        assert_eq!(retry_after(None), Duration::from_secs(60));
+        assert_eq!(
+            retry_after(Some("Wed, 21 Oct 2026 07:28:00 GMT")),
+            Duration::from_secs(60)
+        );
+        assert_eq!(retry_after(Some("0")), Duration::from_secs(1));
+        assert_eq!(retry_after(Some("100000")), Duration::from_secs(300));
+    }
 
     #[test]
     fn subjects_page_parses() {
