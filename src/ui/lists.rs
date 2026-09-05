@@ -324,20 +324,25 @@ impl ListsPage {
         if wanikani > 0 {
             lists.push(List {
                 id: WANIKANI_LIST,
-                name: "WaniKani".into(),
+                name: crate::store::user::BUILT_IN_WANIKANI.into(),
                 entries: wanikani as i64,
             });
         }
         super::clear_rows(&self.lists_box);
         for list in &lists {
+            let count = format!(
+                "{} {}",
+                list.entries,
+                if list.entries == 1 { "entry" } else { "entries" }
+            );
             let row = adw::ActionRow::builder()
                 .activatable(true)
                 .title(glib::markup_escape_text(&list.name).as_str())
-                .subtitle(format!(
-                    "{} {}",
-                    list.entries,
-                    if list.entries == 1 { "entry" } else { "entries" }
-                ))
+                .subtitle(if list.id == WANIKANI_LIST {
+                    format!("{count} · from your WaniKani account")
+                } else {
+                    count
+                })
                 .build();
             row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
             self.lists_box.append(&row);

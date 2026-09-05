@@ -99,6 +99,8 @@ fn learned_row(r: &rusqlite::Row) -> rusqlite::Result<Option<Learned>> {
 pub type LearnedIndex = HashMap<(Kind, String), (u32, u8)>;
 
 pub const FAVOURITES: &str = "Favourites";
+/// The name of the list built from the WaniKani account; no user list may take it.
+pub const BUILT_IN_WANIKANI: &str = "WaniKani";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct List {
@@ -365,9 +367,25 @@ impl UserDb {
         }
     }
 
+    /// Names are unique, and the built-in WaniKani list (`ui::lists::WANIKANI_LIST`) is not a
+    /// row here, so its name is refused too; a clear message instead of the UNIQUE error (#114).
+    fn check_name(&self, name: &str, except: Option<i64>) -> anyhow::Result<()> {
+        anyhow::ensure!(!name.is_empty(), "a list needs a name");
+        anyhow::ensure!(
+            name != BUILT_IN_WANIKANI,
+            "\"{name}\" is the built-in list of your WaniKani account"
+        );
+        if let Some(other) = self.list_by_name(name)?
+            && Some(other.id) != except
+        {
+            anyhow::bail!("there is already a list called \"{name}\"");
+        }
+        Ok(())
+    }
+
     pub fn create_list(&self, name: &str) -> anyhow::Result<List> {
         let name = name.trim();
-        anyhow::ensure!(!name.is_empty(), "a list needs a name");
+        self.check_name(name, None)?;
         let position: i64 =
             self.conn
                 .query_row("SELECT coalesce(max(position), -1) + 1 FROM lists", [], |r| {
@@ -390,7 +408,7 @@ impl UserDb {
 
     pub fn rename_list(&self, id: i64, name: &str) -> anyhow::Result<()> {
         let name = name.trim();
-        anyhow::ensure!(!name.is_empty(), "a list needs a name");
+        self.check_name(name, Some(id))?;
         self.conn
             .execute("UPDATE lists SET name = ?2 WHERE id = ?1", params![id, name])?;
         Ok(())
@@ -587,7 +605,12 @@ mod tests {
         db.rename_list(verbs.id, " Godan ").unwrap();
         assert_eq!(db.list_by_name("Godan").unwrap().unwrap().id, verbs.id);
         assert!(db.create_list("  ").is_err());
-        assert!(db.create_list("Godan").is_err()); // names are unique
+        let twice = db.create_list("Godan").unwrap_err().to_string();
+        assert_eq!(twice, "there is already a list called \"Godan\"");
+        assert!(db.rename_list(fav.id, "Godan").is_err());
+        db.rename_list(verbs.id, "Godan").unwrap(); // its own name is fine
+        assert!(db.create_list(BUILT_IN_WANIKANI).is_err());
+        assert!(db.rename_list(fav.id, "wanikani").is_ok()); // case differs: not the built-in
     }
 
     #[test]
