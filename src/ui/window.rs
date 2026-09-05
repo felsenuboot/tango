@@ -529,6 +529,14 @@ impl Window {
             move |_, _| this.go_back()
         ));
         this.win.add_action(&back_action);
+        // The back button on a mouse (button 8), as browsers treat it (#94).
+        let mouse_back = gtk::GestureClick::builder().button(8).build();
+        mouse_back.connect_pressed(clone!(
+            #[weak]
+            this,
+            move |_, _, _, _| this.go_back()
+        ));
+        this.win.add_controller(mouse_back);
         let star_action = gio::SimpleAction::new("star", None);
         star_action.connect_activate(clone!(
             #[weak]
