@@ -57,6 +57,7 @@ package() {
   cd tango
   install -Dm755 target/release/tango "$pkgdir/usr/bin/tango"
   install -Dm644 "data/$_app.desktop" "$pkgdir/usr/share/applications/$_app.desktop"
+  install -Dm644 "data/$_app.metainfo.xml" "$pkgdir/usr/share/metainfo/$_app.metainfo.xml"
   install -Dm644 "data/icons/hicolor/scalable/apps/$_app.svg" \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_app.svg"
   install -Dm644 "data/icons/hicolor/symbolic/apps/$_app-symbolic.svg" \

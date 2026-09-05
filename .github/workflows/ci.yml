@@ -94,3 +94,14 @@ jobs:
           chown -R builder "$GITHUB_WORKSPACE"
           su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && TANGO_GIT_URL='file://$GITHUB_WORKSPACE' makepkg --noconfirm"
       - run: pacman -U --noconfirm packaging/arch/*.pkg.tar.zst && tango --version
+
+  # The AppStream metadata GNOME Software reads; --no-net skips the screenshot fetch.
+  appstream:
+    name: AppStream
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends appstream
+      - run: appstreamcli validate --no-net data/io.github.felsenuboot.Tango.metainfo.xml

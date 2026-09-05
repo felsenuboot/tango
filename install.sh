@@ -28,12 +28,14 @@ fi
 BIN=~/.local/bin
 APPS=~/.local/share/applications
 ICONS=~/.local/share/icons/hicolor
-mkdir -p "$BIN" "$APPS" "$ICONS/scalable/apps" "$ICONS/symbolic/apps"
+METAINFO=~/.local/share/metainfo
+mkdir -p "$BIN" "$APPS" "$ICONS/scalable/apps" "$ICONS/symbolic/apps" "$METAINFO"
 (cd "$HERE" && cargo build --release)
 install -m755 "$HERE/target/release/tango" "$BIN/tango"
 # Absolute Exec path: launchers do not necessarily have ~/.local/bin in PATH.
 sed "s|^Exec=.*|Exec=$BIN/tango %U|" "$HERE/data/$APP.desktop" > "$APPS/$APP.desktop"
 chmod 644 "$APPS/$APP.desktop"
+install -m644 "$HERE/data/$APP.metainfo.xml" "$METAINFO/$APP.metainfo.xml"
 install -m644 "$HERE/data/icons/hicolor/scalable/apps/$APP.svg" "$ICONS/scalable/apps/$APP.svg"
 install -m644 "$HERE/data/icons/hicolor/symbolic/apps/$APP-symbolic.svg" "$ICONS/symbolic/apps/$APP-symbolic.svg"
 # Fixed-size PNGs for docks and taskbars that do not rasterise SVG themselves.

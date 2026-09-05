@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata (#113): what GNOME Software, the app grid and the About dialog read.
+     Add a <release> per tag; the newest comes first. -->
+<component type="desktop-application">
+  <id>io.github.felsenuboot.Tango</id>
+  <name>Tango</name>
+  <summary>Japanese dictionary with kanji, examples and word lists</summary>
+  <developer id="eu.felixschramm">
+    <name>Felix Schramm</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      Tango (単語) is an offline Japanese dictionary for the GNOME desktop. It searches
+      JMdict and Wadoku side by side, in Japanese, English or German, and resolves inflected
+      forms to their entry with the chain shown.
+    </p>
+    <ul>
+      <li>Kana, kanji, romaji, English or German; tags, quotes and wildcards</li>
+      <li>Kanji pages with stroke order from KanjiVG, readings, parts and words; search by radicals</li>
+      <li>Example sentences from Tatoeba, English and German</li>
+      <li>Names from JMnedict and the unofficial JLPT levels, one click each</li>
+      <li>Word lists with export for Anki, Kitsun and Takoboto</li>
+      <li>WaniKani: level and SRS stage on entries, known-word filters</li>
+    </ul>
+    <p>
+      The dictionaries are downloaded from their publishers on first use; nothing is bundled.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.felsenuboot.Tango.desktop</launchable>
+  <url type="homepage">https://github.com/felsenuboot/tango</url>
+  <url type="bugtracker">https://github.com/felsenuboot/tango/issues</url>
+  <url type="vcs-browser">https://github.com/felsenuboot/tango</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>An entry with its meanings in English and German</caption>
+      <image>https://raw.githubusercontent.com/felsenuboot/tango/master/data/screenshots/entry.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A kanji page with the stroke order diagram</caption>
+      <image>https://raw.githubusercontent.com/felsenuboot/tango/master/data/screenshots/kanji.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Example sentences under an entry</caption>
+      <image>https://raw.githubusercontent.com/felsenuboot/tango/master/data/screenshots/examples.png</image>
+    </screenshot>
+  </screenshots>
+  <branding>
+    <color type="primary" scheme_preference="light">#f6e3c5</color>
+    <color type="primary" scheme_preference="dark">#5a3a1e</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <releases>
+    <release version="0.5.0" date="2026-09-05">
+      <description>
+        <p>More dictionaries: Wadoku with pitch accent, KANJIDIC2, KanjiVG and the radical index, JMnedict names, JLPT levels and Tatoeba example sentences; downloads and imports run in a background queue.</p>
+      </description>
+    </release>
+    <release version="0.4.0" date="2026-09-04">
+      <description>
+        <p>Word lists and favourites with CSV, Anki, Kitsun and Takoboto export; Takoboto import.</p>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-09-04">
+      <description>
+        <p>Romaji input, deinflection, the tag, quote and wildcard syntax, and an FTS5 index for gloss searches.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-09-04">
+      <description>
+        <p>The source model and the Dictionaries page; per-language JMdict senses lined up; an Arch package.</p>
+      </description>
+    </release>
+  </releases>
+</component>

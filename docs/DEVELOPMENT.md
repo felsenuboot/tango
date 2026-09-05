@@ -42,8 +42,10 @@ gh release create v0.3.0 --generate-notes --notes-start-tag v0.2.0 --title "Tang
 ```
 
 Then edit the generated notes to start with two or three sentences of what
-the release means to a user, and close the milestone. In the same release
-pull request, set `pkgver=` in `packaging/arch/PKGBUILD` to what `pkgver()`
+the release means to a user, and close the milestone. The same two or three
+sentences go into a new `<release>` at the top of
+`data/io.github.felsenuboot.Tango.metainfo.xml` (the AppStream file GNOME
+Software reads; CI validates it). In the same release pull request, set `pkgver=` in `packaging/arch/PKGBUILD` to what `pkgver()`
 prints for the release commit (`0.7.0.r<commits>.g<hash>`); `makepkg`
 recomputes it anyway, but the Arch guidelines want the field current.
 `rust-version` in `Cargo.toml` is the oldest toolchain that builds the code
