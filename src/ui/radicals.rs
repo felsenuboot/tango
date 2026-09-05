@@ -45,10 +45,11 @@ impl RadicalsPage {
             .label("Clear")
             .css_classes(["flat"])
             .build();
+        // Not flat: a flat toggle's pressed look is too faint to read (issue #71); the icon and
+        // the tooltip flip with the state as well.
         let hide = gtk::ToggleButton::builder()
-            .icon_name("view-conceal-symbolic")
-            .tooltip_text("Hide parts that no longer fit, instead of greying them out")
-            .css_classes(["flat"])
+            .icon_name("view-reveal-symbolic")
+            .tooltip_text("Parts that no longer fit are greyed out; press to hide them")
             .halign(gtk::Align::End)
             .hexpand(true)
             .build();
@@ -130,6 +131,17 @@ impl RadicalsPage {
             #[weak]
             this,
             move |button| {
+                if button.is_active() {
+                    button.set_icon_name("view-conceal-symbolic");
+                    button.set_tooltip_text(Some(
+                        "Parts that no longer fit are hidden; press to grey them out",
+                    ));
+                } else {
+                    button.set_icon_name("view-reveal-symbolic");
+                    button.set_tooltip_text(Some(
+                        "Parts that no longer fit are greyed out; press to hide them",
+                    ));
+                }
                 if this.quiet.get() {
                     return;
                 }
