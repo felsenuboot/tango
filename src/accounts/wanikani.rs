@@ -134,10 +134,14 @@ pub fn assignments(page: &Collection) -> Vec<Assignment> {
 }
 
 fn get(token: &str, url: &str) -> anyhow::Result<Value> {
-    let mut response = ureq::get(url)
+    // A page is a megabyte at most: one minute for the whole request (#100).
+    let mut response = crate::dict::sources::agent()
+        .get(url)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(60)))
+        .build()
         .header("Authorization", &format!("Bearer {token}"))
         .header("Wanikani-Revision", REVISION)
-        .header("User-Agent", crate::dict::sources::USER_AGENT)
         .call()
         .map_err(|e| match e {
             ureq::Error::StatusCode(401) => anyhow::anyhow!("WaniKani rejected the token (401)"),

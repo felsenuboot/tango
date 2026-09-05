@@ -6,6 +6,8 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+use std::time::Duration;
 
 use anyhow::Context;
 
@@ -207,13 +209,31 @@ pub const USER_AGENT: &str = concat!(
     " (+https://github.com/felsenuboot/tango)"
 );
 
+/// The HTTP client every download and API call goes through. ureq's defaults set no timeout
+/// at all, and jobs run one after the other, so a server that accepted the connection and then
+/// stalled would block the job thread and everything queued behind it for the rest of the
+/// session (#100). The body timeout is long because the Tatoeba set is 45 MB on a slow link.
+pub fn agent() -> &'static ureq::Agent {
+    static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+        ureq::Agent::config_builder()
+            .user_agent(USER_AGENT)
+            .timeout_resolve(Some(Duration::from_secs(30)))
+            .timeout_connect(Some(Duration::from_secs(30)))
+            .timeout_recv_response(Some(Duration::from_secs(60)))
+            .timeout_recv_body(Some(Duration::from_secs(15 * 60)))
+            .build()
+            .into()
+    });
+    &AGENT
+}
+
 /// The URL to download `source` from now: its `url`, or the newest file its page lists.
 pub fn download_url(source: &Source) -> anyhow::Result<String> {
     let Some(latest) = source.latest else {
         return Ok(source.url.to_string());
     };
-    let page = ureq::get(source.url)
-        .header("User-Agent", USER_AGENT)
+    let page = agent()
+        .get(source.url)
         .call()
         .with_context(|| format!("reading {}", source.url))?
         .body_mut()
@@ -225,8 +245,8 @@ pub fn download_url(source: &Source) -> anyhow::Result<String> {
 /// Fetches `url` into `dest`, via a `.part` file so a partial download is never mistaken for a whole one.
 pub fn download(url: &str, dest: &Path, progress: Progress) -> anyhow::Result<PathBuf> {
     let part = dest.with_extension("part");
-    let mut response = ureq::get(url)
-        .header("User-Agent", USER_AGENT)
+    let mut response = agent()
+        .get(url)
         .call()
         .with_context(|| format!("downloading {url}"))?;
     let total = response
@@ -268,6 +288,14 @@ mod tests {
             );
         }
         assert!(by_id("nope").is_none());
+    }
+
+    #[test]
+    fn the_client_has_timeouts() {
+        let timeouts = agent().config().timeouts();
+        assert!(timeouts.connect.is_some());
+        assert!(timeouts.recv_response.is_some());
+        assert!(timeouts.recv_body.is_some());
     }
 
     #[test]
