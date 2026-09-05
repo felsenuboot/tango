@@ -17,7 +17,9 @@
 //!   star                 toggle the current entry in Favourites
 //!   sidebar search|lists show that sidebar page
 //!   list <name>          open that word list in the sidebar
+//!   pick <n>             open the n-th entry of the open list
 //!   filter <kind> <level> <stage>   rows of the WaniKani list's three drop-downs
+//!   grid cards|tiles|search on|off   the grid-view preferences (#83), for this run only
 //!   lists                log the word lists and their entry counts
 //!   preferences [general|dictionaries]   open the preferences, on that page
 //!   about                open the about dialog
@@ -115,6 +117,22 @@ fn run(app: adw::Application, win: Weak<Window>, mut steps: VecDeque<String>) {
         "list" if arg == "WaniKani" => {
             win.show_sidebar_page("lists");
             win.lists_page().open_list(crate::ui::lists::WANIKANI_LIST);
+        }
+        "pick" => win.lists_page().open_index(arg.parse().unwrap_or(0)),
+        "grid" => {
+            let (key, value) = arg.split_once(' ').unwrap_or((arg, "on"));
+            let on = value == "on";
+            {
+                let mut cfg = win.config().borrow_mut();
+                match key {
+                    "cards" => cfg.list_cards = on,
+                    "tiles" => cfg.list_tiles = on,
+                    "search" => cfg.grid_search = on,
+                    other => log::warn!("autopilot: unknown grid setting {other:?}"),
+                }
+            }
+            win.lists_page().refresh_view(on || win.cards_visible());
+            win.refresh_search();
         }
         "filter" => {
             let mut rows = arg.split_whitespace().map(|s| s.parse::<u32>().unwrap_or(0));

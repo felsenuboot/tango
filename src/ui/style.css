@@ -50,3 +50,17 @@
   font-size: 0.75em; font-weight: 700; padding: 1px 8px; border-radius: 99px;
   background-color: alpha(@accent_bg_color, 0.2); color: @accent_color;
 }
+
+/* Grid views (#83): cards in the content pane, tiles in the sidebar, stage washes. */
+.tango-card { padding: 12px 14px; border-radius: 12px; background-color: alpha(currentColor, 0.06); }
+.tango-card-word { font-size: 1.5em; }
+.tango-card-more { background-color: alpha(@accent_bg_color, 0.12); }
+.tango-tile { padding: 8px 6px; border-radius: 10px; background-color: alpha(currentColor, 0.06); }
+.tango-tile-word { font-size: 1.25em; }
+.tango-tile-kanji .tango-tile-word { font-size: 1.6em; }
+.tango-wash-locked { background-color: alpha(currentColor, 0.04); }
+.tango-wash-apprentice { background-color: alpha(#dd0093, 0.18); }
+.tango-wash-guru { background-color: alpha(#882d9e, 0.22); }
+.tango-wash-master { background-color: alpha(#294ddb, 0.2); }
+.tango-wash-enlightened { background-color: alpha(#0093dd, 0.2); }
+.tango-wash-burned { background-color: alpha(#434343, 0.35); }

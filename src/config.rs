@@ -28,6 +28,11 @@ pub struct Config {
     pub hide_unusable_radicals: bool,
     /// Show what WaniKani knows about an entry and its kanji (the token itself is in the keyring).
     pub show_wanikani: bool,
+    /// Grid views (#83): an opened list as cards in the content pane; tiles instead of rows in
+    /// the sidebar; both for search results as well.
+    pub list_cards: bool,
+    pub list_tiles: bool,
+    pub grid_search: bool,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -65,6 +70,9 @@ impl Default for Config {
             window: WindowState::default(),
             hide_unusable_radicals: false,
             show_wanikani: true,
+            list_cards: true,
+            list_tiles: false,
+            grid_search: false,
             path: config_dir().join("config.json"),
         }
     }

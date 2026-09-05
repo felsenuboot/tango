@@ -27,7 +27,8 @@
    meanings, parts, the words that use it. The Kanji page of the sidebar
    finds one by its parts.
 4. **Keep words.** `Ctrl+D` stars an entry into Favourites; the button next
-   to the star adds it to a list. Lists export for Anki, Kitsun and
+   to the star adds it to a list. An opened list fills the content pane with
+   cards, or the sidebar with tiles. Lists export for Anki, Kitsun and
    Takoboto and import from CSV or a Takoboto export.
 5. **Connect WaniKani** in Preferences → Accounts with a read-only token:
    entries and kanji show your SRS stage, `#known` and `#unknown` filter,
@@ -47,7 +48,7 @@ One page per topic, with screenshots:
 - [Entries](guide/entries.md): JMdict and Wadoku side by side, the languages, pitch accent and speech, every detail JMdict carries, links elsewhere
 - [Example sentences](guide/sentences.md): Tatoeba under an entry, `#sentences`, the sentence page
 - [Kanji](guide/kanji.md): the kanji page, stroke order, search by parts
-- [Word lists](guide/lists.md): Favourites, lists, export and import
+- [Word lists](guide/lists.md): Favourites, lists, cards and tiles, export and import
 - [Dictionaries](guide/dictionaries.md): the sources, the queue, updates, licences
 - [WaniKani](guide/wanikani.md): connecting, the chips, the filters, the WaniKani list
 - [Themes](guide/themes.md): the schemes, the playful ones, custom CSS

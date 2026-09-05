@@ -11,7 +11,7 @@ use super::jobs::State;
 use super::theme::{self, Scheme};
 use super::thousands;
 use super::window::Window;
-use crate::config::cache_dir;
+use crate::config::{Config, cache_dir};
 use crate::dict::sources::{self, Source};
 use crate::model::language_name;
 use crate::store::db::SourceStatus;
@@ -61,6 +61,57 @@ fn general_page(win: &Rc<Window>) -> adw::PreferencesPage {
         }
     });
     look.add(&scheme);
+
+    // Grid views (#83): cards in the content pane, tiles in the sidebar, for lists and search.
+    let grids = adw::PreferencesGroup::builder()
+        .title("Lists and results")
+        .description("Cards in the content pane and tiles in the sidebar")
+        .build();
+    page.add(&grids);
+    let (cards, tiles, search) = {
+        let cfg = win.config().borrow();
+        (cfg.list_cards, cfg.list_tiles, cfg.grid_search)
+    };
+    let switch = |title: &str, subtitle: &str, active: bool, set: fn(&mut Config, bool)| {
+        let row = adw::SwitchRow::builder()
+            .title(title)
+            .subtitle(subtitle)
+            .active(active)
+            .build();
+        row.connect_active_notify(clone!(
+            #[weak]
+            win,
+            move |row| {
+                {
+                    let mut cfg = win.config().borrow_mut();
+                    set(&mut cfg, row.is_active());
+                    cfg.save();
+                }
+                win.lists_page()
+                    .refresh_view(row.is_active() || win.cards_visible());
+                win.refresh_search();
+            }
+        ));
+        grids.add(&row);
+    };
+    switch(
+        "Cards in the content pane",
+        "An opened list fills the content pane with cards until an entry is opened",
+        cards,
+        |c, v| c.list_cards = v,
+    );
+    switch(
+        "Tiles in the sidebar",
+        "Tiles instead of rows; the grid button in a list's header switches too",
+        tiles,
+        |c, v| c.list_tiles = v,
+    );
+    switch(
+        "Search results too",
+        "Cards and tiles for search results, not only for lists",
+        search,
+        |c, v| c.grid_search = v,
+    );
 
     let glosses = adw::PreferencesGroup::builder()
         .title("Languages")

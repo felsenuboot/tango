@@ -42,10 +42,16 @@ pub struct ListsPage {
     wk_items: RefCell<Vec<Learned>>,
     wk_shown: Cell<usize>,
     more_row: RefCell<Option<gtk::ListBoxRow>>,
+    /// What WaniKani knows about each of `entries`, parallel to it (`None` on plain lists).
+    learned: RefCell<Vec<Option<Learned>>>,
+    /// Rows or tiles (#83): the "rows" and "tiles" pages, and the header button that switches.
+    view: gtk::Stack,
+    tiles_box: adw::Bin,
+    tiles_toggle: gtk::ToggleButton,
 }
 
 /// Rows the WaniKani list builds at a time.
-const PAGE: usize = 200;
+pub const PAGE: usize = 200;
 
 impl ListsPage {
     pub fn new() -> Rc<Self> {
@@ -136,8 +142,14 @@ impl ListsPage {
             .margin_top(6)
             .margin_bottom(6)
             .build();
+        let tiles_toggle = gtk::ToggleButton::builder()
+            .icon_name("view-grid-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text("Tiles instead of rows")
+            .build();
         header.append(&back);
         header.append(&title);
+        header.append(&tiles_toggle);
         header.append(&menu_button);
         // Filters for the WaniKani list (#55): what kind of item, which level, which stage.
         let kind = gtk::DropDown::from_strings(&["Words and kanji", "Words", "Kanji"]);
@@ -179,9 +191,13 @@ impl ListsPage {
         let entries_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
         entries_page.append(&header);
         entries_page.append(&filters);
+        let tiles_box = adw::Bin::new();
+        let view = gtk::Stack::new();
+        view.add_named(&entries_box, Some("rows"));
+        view.add_named(&tiles_box, Some("tiles"));
         entries_page.append(
             &gtk::ScrolledWindow::builder()
-                .child(&entries_box)
+                .child(&view)
                 .vexpand(true)
                 .hscrollbar_policy(gtk::PolicyType::Never)
                 .build(),
@@ -209,15 +225,36 @@ impl ListsPage {
             wk_items: RefCell::new(Vec::new()),
             wk_shown: Cell::new(0),
             more_row: RefCell::new(None),
+            learned: RefCell::new(Vec::new()),
+            view,
+            tiles_box,
+            tiles_toggle,
         });
         this.install_actions();
+        this.tiles_toggle.connect_toggled(clone!(
+            #[weak]
+            this,
+            move |button| {
+                let Some(win) = this.window() else { return };
+                // `refresh_view` sets the button from the config too; only a real change acts.
+                if win.config().borrow().list_tiles == button.is_active() {
+                    return;
+                }
+                {
+                    let mut cfg = win.config().borrow_mut();
+                    cfg.list_tiles = button.is_active();
+                    cfg.save();
+                }
+                this.refresh_view(win.cards_visible());
+            }
+        ));
         for d in [&this.kind, &this.level, &this.stage] {
             d.connect_selected_notify(clone!(
                 #[weak]
                 this,
                 move |_| {
                     if this.current.get() == Some(WANIKANI_LIST) {
-                        this.show_entries(WANIKANI_LIST);
+                        this.show_entries(WANIKANI_LIST, true);
                     }
                 }
             ));
@@ -241,7 +278,9 @@ impl ListsPage {
                 match (entry, this.window()) {
                     (Some(entry), Some(win)) => win.open_list_entry(&entry),
                     // Past the entries sits the "Show more" row.
-                    (None, Some(win)) if this.current.get() == Some(WANIKANI_LIST) => this.append_page(&win),
+                    (None, Some(win)) if this.current.get() == Some(WANIKANI_LIST) => {
+                        this.append_page(&win, win.cards_visible())
+                    }
                     _ => {}
                 }
             }
@@ -252,7 +291,21 @@ impl ListsPage {
     /// Links the page to its window; the window must call this once it exists.
     pub fn attach(&self, win: &Rc<Window>) {
         *self.win.borrow_mut() = Rc::downgrade(win);
+        self.tiles_toggle.set_active(win.config().borrow().list_tiles);
         self.refresh();
+    }
+
+    /// After the grid preferences changed: the toggle, and the open list shown again.
+    pub fn refresh_view(&self, cards: bool) {
+        let Some(win) = self.window() else { return };
+        let tiles = win.config().borrow().list_tiles;
+        self.tiles_toggle.set_active(tiles);
+        match self.current.get() {
+            Some(id) => self.show_entries(id, cards),
+            None => self
+                .view
+                .set_visible_child_name(if tiles { "tiles" } else { "rows" }),
+        }
     }
 
     fn window(&self) -> Option<Rc<Window>> {
@@ -292,7 +345,8 @@ impl ListsPage {
         *self.lists.borrow_mut() = lists;
         if let Some(id) = self.current.get() {
             if self.lists.borrow().iter().any(|l| l.id == id) {
-                self.show_entries(id);
+                let cards = self.window().is_some_and(|w| w.cards_visible());
+                self.show_entries(id, cards);
             } else {
                 self.back();
             }
@@ -301,7 +355,7 @@ impl ListsPage {
 
     pub fn open_list(&self, id: i64) {
         self.current.set(Some(id));
-        self.show_entries(id);
+        self.show_entries(id, true);
         self.widget.set_visible_child_name("entries");
     }
 
@@ -310,7 +364,9 @@ impl ListsPage {
         self.widget.set_visible_child_name("lists");
     }
 
-    fn show_entries(&self, id: i64) {
+    /// Fills the entries page; `cards` also shows the list in the content pane when that is
+    /// enabled (an open list refreshing after a change keeps whatever the pane shows).
+    fn show_entries(&self, id: i64, cards: bool) {
         let Some(win) = self.window() else { return };
         let name = self
             .lists
@@ -324,10 +380,11 @@ impl ListsPage {
         super::clear_rows(&self.entries_box);
         *self.more_row.borrow_mut() = None;
         self.entries.borrow_mut().clear();
+        self.learned.borrow_mut().clear();
         if id == WANIKANI_LIST {
             *self.wk_items.borrow_mut() = self.filtered_wanikani(&win);
             self.wk_shown.set(0);
-            self.append_page(&win);
+            self.append_page(&win, cards);
             return;
         }
         let entries = win.user().entries(id).unwrap_or_else(|e| {
@@ -337,8 +394,58 @@ impl ListsPage {
         for e in &entries {
             self.entries_box.append(&self.row(&win, id, e, None));
         }
+        let n = entries.len();
         *self.entries.borrow_mut() = entries;
+        *self.learned.borrow_mut() = (0..n).map(|_| None).collect();
         super::name_icon_buttons(self.entries_box.upcast_ref());
+        self.after_rows(&win, cards);
+    }
+
+    /// After rows were added (#83): the tiles page when tiles are on, and the list as cards
+    /// in the content pane when `cards` asks for it and the preference allows.
+    fn after_rows(&self, win: &Rc<Window>, cards: bool) {
+        let (tiles_on, cards_on) = {
+            let cfg = win.config().borrow();
+            (cfg.list_tiles, cfg.list_cards)
+        };
+        let entries = self.entries.borrow();
+        let learned = self.learned.borrow();
+        let weak = Rc::downgrade(win);
+        let wanikani = self.current.get() == Some(WANIKANI_LIST);
+        let (shown, total) = (self.wk_shown.get(), self.wk_items.borrow().len());
+        let more = || {
+            let remaining = total.saturating_sub(shown);
+            if !wanikani || remaining == 0 {
+                return None;
+            }
+            let weak = weak.clone();
+            Some(super::grid::More {
+                remaining,
+                load: Rc::new(move || {
+                    if let Some(win) = weak.upgrade() {
+                        let lists = win.lists_page().clone();
+                        lists.append_page(&win, win.cards_visible());
+                    }
+                }),
+            })
+        };
+        if tiles_on {
+            self.tiles_box
+                .set_child(Some(&super::grid::tiles(&weak, &entries, &learned, more())));
+            self.view.set_visible_child_name("tiles");
+        } else {
+            self.tiles_box.set_child(None::<&gtk::Widget>);
+            self.view.set_visible_child_name("rows");
+        }
+        if cards && cards_on && !win.split_collapsed() {
+            let subtitle = if wanikani {
+                format!("{shown} of {total} items after the filters")
+            } else {
+                format!("{} words", entries.len())
+            };
+            let wall = super::grid::cards(&weak, &self.title.text(), &subtitle, &entries, &learned, more());
+            win.show_cards(&wall);
+        }
     }
 
     /// One row: headword and reading, gloss and note, then the learned chip or a remove button.
@@ -392,7 +499,7 @@ impl ListsPage {
     /// The next page of the WaniKani list: resolves those items only, appends their rows, and
     /// a "Show more" row while items remain. Building every row at once froze the window with a
     /// real account's thousands of items.
-    fn append_page(&self, win: &Rc<Window>) {
+    fn append_page(&self, win: &Rc<Window>, cards: bool) {
         if let Some(more) = self.more_row.borrow_mut().take() {
             self.entries_box.remove(&more);
         }
@@ -406,6 +513,7 @@ impl ListsPage {
                 .append(&self.row(win, WANIKANI_LIST, e, l.as_ref()));
         }
         self.entries.borrow_mut().extend(entries);
+        self.learned.borrow_mut().extend(learned);
         self.wk_shown.set(to);
         if to < total {
             let more = adw::ActionRow::builder()
@@ -417,6 +525,15 @@ impl ListsPage {
                 .build();
             self.entries_box.append(&more);
             *self.more_row.borrow_mut() = Some(more.upcast::<gtk::ListBoxRow>());
+        }
+        self.after_rows(win, cards);
+    }
+
+    /// Opens the `index`-th entry of the open list (for the autopilot).
+    pub fn open_index(&self, index: usize) {
+        let entry = self.entries.borrow().get(index).cloned();
+        if let (Some(entry), Some(win)) = (entry, self.window()) {
+            win.open_list_entry(&entry);
         }
     }
 

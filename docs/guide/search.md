@@ -39,6 +39,12 @@ entries and rows carry a green level chip.
 
 ![#jlpt-n5](../../data/screenshots/jlpt.png)
 
+## Cards and tiles
+
+With "Search results too" on under Preferences → General → Lists and
+results, the hits appear as tiles in the sidebar and as cards in the content
+pane instead of opening the first hit; click one to open it.
+
 ## No results
 
 A search that finds nothing offers the same query on jisho.org in the

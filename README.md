@@ -31,8 +31,9 @@ kanji with stroke order, word lists, and the search a Jisho user expects.
   `#sentences` searches the sentences themselves.
 - 🈷 **Kanji.** Stroke order from KanjiVG, readings, meanings, parts and
   words; find a kanji by its parts.
-- ⭐ **Word lists.** Favourites and lists of your own; export for Anki,
-  Kitsun and Takoboto, import CSV or a Takoboto export.
+- ⭐ **Word lists.** Favourites and lists of your own, as rows, tiles or a
+  wall of cards; export for Anki, Kitsun and Takoboto, import CSV or a
+  Takoboto export.
 - 🔗 **Elsewhere.** Jisho, Wadoku, Wikipedia, Wiktionary and Takoboto one
   button away; Takoboto links open in Tango.
 - 🗂️ **Dictionaries page.** Every source with version and count; downloads

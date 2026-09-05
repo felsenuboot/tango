@@ -5,6 +5,7 @@
 //! main window so application actions (`app.preferences`, `app.about`) can reach it.
 
 pub mod entry_view;
+pub mod grid;
 pub mod jobs;
 pub mod kanji_view;
 pub mod lists;

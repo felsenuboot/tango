@@ -8,7 +8,7 @@ German as the preferred language, dark theme unless said otherwise.
 - [Entries](entries.md): JMdict and Wadoku side by side, the languages, pitch accent and speech, every detail JMdict carries, links elsewhere
 - [Example sentences](sentences.md): Tatoeba under an entry, `#sentences`, the sentence page
 - [Kanji](kanji.md): the kanji page, stroke order, search by parts
-- [Word lists](lists.md): Favourites, lists, export and import
+- [Word lists](lists.md): Favourites, lists, cards and tiles, export and import
 - [Dictionaries](dictionaries.md): the sources, the queue, updates, licences
 - [WaniKani](wanikani.md): connecting, the chips, the filters, the WaniKani list
 - [Themes](themes.md): the schemes, the playful ones, custom CSS

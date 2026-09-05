@@ -16,7 +16,7 @@ use super::radicals::RadicalsPage;
 use super::sentence_view::SentenceView;
 use super::thousands;
 use crate::APP_NAME;
-use crate::accounts::{self, Kind, wanikani};
+use crate::accounts::{self, Kind, Learned, wanikani};
 use crate::config::user_database_path;
 use crate::config::{Config, cache_dir};
 use crate::dict::sources::{self, Source};
@@ -41,6 +41,8 @@ enum View {
     Entry(Entry),
     Kanji(char),
     Sentence(Sentence),
+    /// A list or a search result as cards (#83); the wall itself stays in its stack page.
+    Cards,
 }
 
 /// Example sentences shown under an entry at first, and after "Show all".
@@ -76,6 +78,13 @@ pub struct Window {
     results: gtk::ListBox,
     /// The "No results" page under the list; its description carries search hints.
     no_results: adw::StatusPage,
+    /// Search results as tiles instead of rows (#83): the "rows"/"tiles" stack and the tiles.
+    results_view: gtk::Stack,
+    results_tiles: adw::Bin,
+    /// The card wall page of the content stack (#83).
+    cards: adw::Bin,
+    /// A handle to ourselves for widgets that outlive a call, without a reference cycle.
+    me: RefCell<std::rc::Weak<Window>>,
     stack: gtk::Stack,
     split: adw::NavigationSplitView,
     toasts: adw::ToastOverlay,
@@ -160,8 +169,12 @@ impl Window {
             .build();
         no_results.set_child(Some(&search_online));
         results.set_placeholder(Some(&no_results));
+        let results_tiles = adw::Bin::new();
+        let results_view = gtk::Stack::new();
+        results_view.add_named(&results, Some("rows"));
+        results_view.add_named(&results_tiles, Some("tiles"));
         let scroller = gtk::ScrolledWindow::builder()
-            .child(&results)
+            .child(&results_view)
             .vexpand(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
@@ -270,6 +283,8 @@ impl Window {
         stack.add_named(entry_view.widget(), Some("entry"));
         stack.add_named(kanji_view.widget(), Some("kanji"));
         stack.add_named(sentence_view.widget(), Some("sentence"));
+        let cards = adw::Bin::new();
+        stack.add_named(&cards, Some("cards"));
         let content_header = adw::HeaderBar::new();
         let back = gtk::Button::builder()
             .icon_name("go-previous-symbolic")
@@ -376,6 +391,10 @@ impl Window {
             open_in,
             results,
             no_results,
+            results_view,
+            results_tiles,
+            cards,
+            me: RefCell::new(std::rc::Weak::new()),
             stack,
             split,
             toasts,
@@ -535,6 +554,7 @@ impl Window {
                 move |popover| this.fill_list_popover(popover)
             ));
         }
+        *this.me.borrow_mut() = Rc::downgrade(&this);
         this.lists.attach(&this);
         this.radicals.attach(&this);
         let import_action = gio::SimpleAction::new("import", None);
@@ -1076,6 +1096,92 @@ impl Window {
         Some(menu)
     }
 
+    // -- grid views (#83) -------------------------------------------------------------------
+
+    /// Whether the content pane shows a card wall.
+    pub fn cards_visible(&self) -> bool {
+        self.stack.visible_child_name().as_deref() == Some("cards")
+    }
+
+    pub fn split_collapsed(&self) -> bool {
+        self.split.is_collapsed()
+    }
+
+    /// Shows a card wall in the content pane; Back returns to it from an entry opened there.
+    pub fn show_cards(&self, wall: &gtk::Widget) {
+        if !self.cards_visible() {
+            self.remember();
+        }
+        self.cards.set_child(Some(wall));
+        *self.view.borrow_mut() = Some(View::Cards);
+        self.stack.set_visible_child_name("cards");
+        self.refresh_back();
+    }
+
+    /// What WaniKani knows about one of an entry's forms, for a card or a tile.
+    pub fn learned_for_entry(&self, entry: &Entry) -> Option<Learned> {
+        let index = self.learned.borrow();
+        entry.kanji.iter().chain(&entry.readings).find_map(|text| {
+            index
+                .get(&(Kind::Vocabulary, text.clone()))
+                .map(|&(level, stage)| Learned {
+                    provider: "wanikani".into(),
+                    kind: Kind::Vocabulary,
+                    text: text.clone(),
+                    level,
+                    stage,
+                })
+        })
+    }
+
+    /// Search results as tiles in the sidebar and cards in the content pane, or the plain rows
+    /// again when `grid` is `None`.
+    fn search_grid(&self, grid: Option<(&str, &[String])>) {
+        let Some((query, langs)) = grid else {
+            self.results_tiles.set_child(None::<&gtk::Widget>);
+            self.results_view.set_visible_child_name("rows");
+            return;
+        };
+        let (tiles_on, cards_on) = {
+            let cfg = self.config.borrow();
+            (cfg.list_tiles, cfg.list_cards)
+        };
+        let found = self.found.borrow();
+        let entries: Vec<ListEntry> = found
+            .iter()
+            .map(|h| ListEntry {
+                source: h.entry.source.clone(),
+                seq: h.entry.id,
+                headword: h.entry.headword().to_string(),
+                reading: if h.entry.reading() == h.entry.headword() {
+                    String::new()
+                } else {
+                    h.entry.reading().to_string()
+                },
+                gloss: h.entry.summary(langs).to_string(),
+                note: h.note.clone().unwrap_or_default(),
+                added: String::new(),
+            })
+            .collect();
+        let learned: Vec<Option<Learned>> = found.iter().map(|h| self.learned_for_entry(&h.entry)).collect();
+        drop(found);
+        let weak = self.me.borrow().clone();
+        if tiles_on {
+            self.results_tiles
+                .set_child(Some(&super::grid::tiles(&weak, &entries, &learned, None)));
+            self.results_view.set_visible_child_name("tiles");
+        } else {
+            self.results_tiles.set_child(None::<&gtk::Widget>);
+            self.results_view.set_visible_child_name("rows");
+        }
+        if cards_on && !self.split.is_collapsed() {
+            let subtitle = format!("{} results", entries.len());
+            self.show_cards(&super::grid::cards(
+                &weak, query, &subtitle, &entries, &learned, None,
+            ));
+        }
+    }
+
     /// Shows the dictionary entry behind a list row, if its source is still installed.
     pub fn open_list_entry(&self, item: &ListEntry) {
         // Rows of the built-in WaniKani list: kanji open their page; a word no installed
@@ -1261,7 +1367,22 @@ impl Window {
             self.results.append(&result_row(hit, &langs, listed));
         }
         self.results.invalidate_headers();
-        if any && !query.trim().is_empty() {
+        // Grid views for the results (#83): instead of opening the first hit, the hits become
+        // cards and tiles; a `#sentences` search keeps its rows.
+        let grid = {
+            let cfg = self.config.borrow();
+            cfg.grid_search
+                && (cfg.list_cards || cfg.list_tiles)
+                && !query.trim().is_empty()
+                && self.found_sentences.borrow().is_empty()
+                && !self.found.borrow().is_empty()
+        };
+        self.search_grid(if grid {
+            Some((query, langs.as_slice()))
+        } else {
+            None
+        });
+        if any && !query.trim().is_empty() && !grid {
             self.select_result(0);
         }
     }
@@ -1332,6 +1453,7 @@ impl Window {
             View::Entry(entry) => self.show_entry(entry),
             View::Kanji(c) => self.show_kanji(c),
             View::Sentence(s) => self.show_sentence(s),
+            View::Cards => self.stack.set_visible_child_name("cards"),
         }
         self.going_back.set(false);
         self.refresh_back();
