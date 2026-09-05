@@ -267,6 +267,16 @@ mod tests {
     }
 
     #[test]
+    fn an_entry_without_forms_has_empty_names() {
+        let e = Entry::default();
+        assert_eq!(e.headword(), "");
+        assert_eq!(e.reading(), "");
+        assert!(e.languages().is_empty());
+        assert_eq!(e.summary(&pref(&["eng"])), "");
+        assert!(e.readings.get(1..).unwrap_or(&[]).is_empty()); // what the entry view slices
+    }
+
+    #[test]
     fn equal_counts_line_up_by_position() {
         let e = entry(vec![
             sense("eng", &["hand", "arm"]),

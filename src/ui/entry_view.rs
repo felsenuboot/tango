@@ -174,8 +174,10 @@ impl EntryView {
             head.append(&tag);
         }
         self.body.append(&head);
+        // Without kanji the first reading is the headword already; an entry with no forms at
+        // all (a broken source file) must not take the window down (#106).
         let readings: &[String] = if entry.kanji.is_empty() {
-            &entry.readings[1..]
+            entry.readings.get(1..).unwrap_or(&[])
         } else {
             &entry.readings
         };
