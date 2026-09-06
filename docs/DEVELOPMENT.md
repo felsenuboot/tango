@@ -22,8 +22,12 @@ directly.
 4. Open the pull request with `Closes #<issue>` in the body and the issue's
    milestone. Squash-merge it with the subject from step 3, so master carries
    one commit per issue and every commit traces to an issue and a milestone.
-5. Sessions live in `docs/sessions/`; screenshots that document a change go
-   into the pull request.
+5. Session summaries live in `docs/sessions/` as Markdown. The raw `.jsonl`
+   transcript stays local (`/docs/sessions/*.jsonl` is gitignored) and Entire
+   keeps its checkpoints local too (`push_sessions: false`): both contain the
+   whole system prompt and memory index of a session, which is nothing for a
+   public repository (#151). Screenshots that document a change go into the
+   pull request.
 
 ## Releasing
 

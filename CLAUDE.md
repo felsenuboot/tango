@@ -61,7 +61,9 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   pushes to master, CI must be green (a convention; GitHub cannot enforce it on
   a private free repo). Milestone done → bump
   `Cargo.toml`, tag `vX.Y.0`, GitHub release. Details: `docs/DEVELOPMENT.md`.
-- Session transcripts live in `docs/sessions/`.
+- Session summaries live in `docs/sessions/` as Markdown. Raw `.jsonl` transcripts
+  stay local (gitignored) and Entire does not push its checkpoints: both carry the
+  whole system prompt and memory of a session.
 
 ## Roadmap
 

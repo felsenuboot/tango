@@ -6,3 +6,5 @@
 /packaging/arch/*.pkg.tar*
 /packaging/arch/*.log
 log.txt
+# raw Claude Code transcripts stay local; only the .md summaries are committed (#151)
+/docs/sessions/*.jsonl
