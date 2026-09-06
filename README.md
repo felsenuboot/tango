@@ -2,7 +2,7 @@
   <img src="data/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango.svg" width="128" alt="">
   <h1>Tango 単語</h1>
   <p>A Japanese dictionary for GNOME</p>
-  <a href="https://github.com/felsenuboot/tango/actions/workflows/ci.yml"><img src="https://github.com/felsenuboot/tango/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/felsenuboot/tango/actions/workflows/ci.yml"><img src="https://github.com/felsenuboot/tango/actions/workflows/ci.yml/badge.svg?event=pull_request" alt="CI"></a>
   <a href="https://github.com/felsenuboot/tango/releases"><img src="https://img.shields.io/badge/release-v0.5.0-4a86cf" alt="Release v0.5.0"></a>
 </div>
 

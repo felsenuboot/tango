@@ -2,9 +2,9 @@
 # One job per tool, so one failing never hides the others.
 name: CI
 
+# Pull requests only: the repo is private, so every job here counts against the account's
+# 2000 free Actions minutes per month. A second run on the merge commit would double the bill.
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
 
@@ -13,9 +13,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # A superseded pull-request run is cancelled; master runs finish, because a cancelled run
-  # shows as "failing" on the README badge.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  # A superseded pull-request run is cancelled so pushes to the same PR do not bill twice.
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

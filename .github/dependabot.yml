@@ -1,11 +1,10 @@
-# Weekly dependency updates, one grouped pull request per ecosystem (#112).
+# Monthly dependency updates, one grouped pull request per ecosystem (#112).
 version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     groups:
       crates:
         patterns: ["*"]
@@ -14,8 +13,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
     groups:
       actions:
         patterns: ["*"]
