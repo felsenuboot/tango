@@ -1,8 +1,9 @@
 # Tango 単語 – notes for Claude Code
 
 Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
-(crate features `v4_12` / `v1_5`, so Ubuntu 24.04 CI builds). Private repo
-`felsenuboot/tango`, scaffolded 2026-09-04.
+(crate features `v4_12` / `v1_5`, so Ubuntu 24.04 CI builds). Public repo
+`felsenuboot/tango`, scaffolded 2026-09-04, public since 2026-09-15 (the
+history before that was rewritten to drop a session transcript, #151).
 
 ## Decisions
 
@@ -58,8 +59,8 @@ Japanese dictionary for GNOME in Rust with gtk4-rs 0.11 and libadwaita-rs 0.9
   (see `docs/DEVELOPMENT.md`); `window.rs` has the workaround.
 - One issue → one branch (`<issue>-<slug>`) → one pull request (`Closes #N`,
   milestone set) → squash-merge with the subject `area: what (#N)`. No direct
-  pushes to master, CI must be green (a convention; GitHub cannot enforce it on
-  a private free repo). Milestone done → bump
+  pushes to master, CI must be green (a convention so far; the public repo
+  could enforce it with a ruleset). Milestone done → bump
   `Cargo.toml`, tag `vX.Y.0`, GitHub release. Details: `docs/DEVELOPMENT.md`.
 - Session summaries live in `docs/sessions/` as Markdown. Raw `.jsonl` transcripts
   stay local (gitignored) and Entire does not push its checkpoints: both carry the
