@@ -10,9 +10,9 @@ cargo run                                    # dev build against the real config
 ## Working on an issue
 
 Master is always releasable; nothing lands on it without a pull request and a
-green CI. That is a convention, not a rule GitHub enforces: rulesets and
-branch protection need GitHub Pro on a private repository. Tags are pushed
-directly.
+green CI. That is a convention so far, not a rule GitHub enforces; since the
+repository is public (2026-09-15, #153) a ruleset could enforce it. Tags are
+pushed directly.
 
 1. Every change starts from an issue. No issue yet? Open one, even a one-liner,
    and put it in a milestone.
@@ -31,8 +31,8 @@ directly.
 
 ## Releasing
 
-The release badge in the README is static (shields.io cannot read a private
-repository): bump its version text in the release pull request.
+The release badge in the README reads the latest GitHub release through
+shields.io, so a release updates it by itself.
 
 Milestones are minor versions: `0.3 Search` ships as `v0.3.0`. When the last
 issue of a milestone closes:
