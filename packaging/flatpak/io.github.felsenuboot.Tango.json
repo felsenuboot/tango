@@ -1,0 +1,45 @@
+{
+  "app-id": "io.github.felsenuboot.Tango",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "49",
+  "sdk": "org.gnome.Sdk",
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "command": "tango",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=wayland",
+    "--socket=fallback-x11",
+    "--device=dri",
+    "--share=network",
+    "--talk-name=org.freedesktop.secrets"
+  ],
+  "modules": [
+    {
+      "name": "tango",
+      "buildsystem": "simple",
+      "build-options": {
+        "append-path": "/usr/lib/sdk/rust-stable/bin",
+        "env": {
+          "CARGO_HOME": "/run/build/tango/cargo",
+          "CARGO_NET_OFFLINE": "true"
+        }
+      },
+      "build-commands": [
+        "cargo build --release --frozen",
+        "install -Dm755 target/release/tango /app/bin/tango",
+        "install -Dm644 data/io.github.felsenuboot.Tango.desktop /app/share/applications/io.github.felsenuboot.Tango.desktop",
+        "install -Dm644 data/io.github.felsenuboot.Tango.metainfo.xml /app/share/metainfo/io.github.felsenuboot.Tango.metainfo.xml",
+        "install -Dm644 data/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango.svg /app/share/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango.svg",
+        "install -Dm644 data/icons/hicolor/symbolic/apps/io.github.felsenuboot.Tango-symbolic.svg /app/share/icons/hicolor/symbolic/apps/io.github.felsenuboot.Tango-symbolic.svg"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "../..",
+          "skip": [".git", ".flatpak-builder", "build-flatpak", "target", "dist", "packaging/arch/src", "packaging/arch/pkg"]
+        },
+        "cargo-sources.json"
+      ]
+    }
+  ]
+}

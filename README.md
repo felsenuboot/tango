@@ -73,8 +73,11 @@ entry, and show a generic one until it exists.
 | --- | --- |
 | Arch | `rust gtk4 libadwaita sqlite xz libsecret` |
 | Debian, Ubuntu | `cargo libgtk-4-dev libadwaita-1-dev libsqlite3-dev liblzma-dev libsecret-1-dev` |
+| Fedora | `rust cargo gcc pkgconf-pkg-config gtk4-devel libadwaita-devel sqlite-devel xz-devel libsecret-devel` |
 
-There is no Flatpak, and Flathub is not planned.
+**Flatpak (Fedora/GNOME).** See [the Flatpak guide](docs/FLATPAK.md) to build a
+bundle, install it, or share it with another Linux user. Building requires Linux
+(a VM or CI when working from macOS). Flathub publication is not planned.
 
 On first start, click **Download JMdict** (about 22 MB). Wadoku, KANJIDIC2,
 KanjiVG, the radical index, the JMnedict names, the JLPT lists and the

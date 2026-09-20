@@ -1,0 +1,52 @@
+name: Flatpak
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - 'data/**'
+      - 'packaging/flatpak/**'
+      - '.github/workflows/flatpak.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flatpak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    # The SDK supplies build libraries; 22.04 avoids 24.04's additional
+    # AppArmor restrictions on bubblewrap's unprivileged user namespaces.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Check source list
+        run: python3 packaging/flatpak/generate-sources.py --check
+      - name: Install Flatpak tools
+        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder shellcheck
+      - name: Check packaging shell script
+        run: shellcheck packaging/flatpak/build.sh
+      - name: Install GNOME and Rust SDKs
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49 org.freedesktop.Sdk.Extension.rust-stable//25.08
+      - name: Build and smoke-test bundle
+        run: bash packaging/flatpak/build.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Tango-x86_64
+          path: dist/Tango-x86_64.flatpak
+          if-no-files-found: error
+          retention-days: 14
