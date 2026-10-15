@@ -111,3 +111,7 @@ traceability, checks the SDK's composer before compilation and removes stale
 bundle output. Stable Builder and SDK refs receive upstream updates; this is a
 shared toolchain recipe, not a claim of bit-for-bit reproducibility. The
 application manifest and pinned Cargo sources remain unchanged.
+
+Headless runners must provide a session bus for the Builder wrapper's host
+commands: `dbus-run-session -- bash packaging/flatpak/build.sh`. A normal Fedora
+GNOME login already provides that bus.
