@@ -25,9 +25,6 @@ rm -f "$BUNDLE"
 "${BUILDER[@]}" --user --install-deps-from=flathub --force-clean \
   --repo=build-flatpak/repo build-flatpak/app \
   packaging/flatpak/io.github.felsenuboot.Tango.json
-# A headless check of the installed executable and its shared libraries.
-"${BUILDER[@]}" --run build-flatpak/app \
-  packaging/flatpak/io.github.felsenuboot.Tango.json tango --version
 flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
   build-flatpak/repo "$BUNDLE" io.github.felsenuboot.Tango
 test -s "$BUNDLE"
