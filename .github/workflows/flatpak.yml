@@ -35,15 +35,24 @@ jobs:
       - name: Check source list
         run: python3 packaging/flatpak/generate-sources.py --check
       - name: Install Flatpak tools
-        run: sudo apt-get update && sudo apt-get install -y flatpak flatpak-builder shellcheck
+        run: sudo apt-get update && sudo apt-get install -y flatpak shellcheck
       - name: Check packaging shell script
         run: shellcheck packaging/flatpak/build.sh
-      - name: Install GNOME and Rust SDKs
+      - name: Install Builder, GNOME and Rust SDKs
         run: |
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive flathub org.gnome.Platform//49 org.gnome.Sdk//49 org.freedesktop.Sdk.Extension.rust-stable//25.08
+          flatpak install --user --noninteractive flathub org.flatpak.Builder//stable org.gnome.Platform//49 org.gnome.Sdk//49 org.freedesktop.Sdk.Extension.rust-stable//25.08
       - name: Build and smoke-test bundle
         run: bash packaging/flatpak/build.sh
+      - name: Install and test the actual bundle
+        run: |
+          flatpak install --user --noninteractive --bundle dist/Tango-x86_64.flatpak
+          flatpak info --user io.github.felsenuboot.Tango
+          flatpak run --user io.github.felsenuboot.Tango --version
+          app_dir="$(flatpak info --user --show-location io.github.felsenuboot.Tango)"
+          test -s "$app_dir/export/share/applications/io.github.felsenuboot.Tango.desktop"
+          test -s "$app_dir/export/share/icons/hicolor/scalable/apps/io.github.felsenuboot.Tango.svg"
+          test -s "$app_dir/files/share/app-info/xmls/io.github.felsenuboot.Tango.xml.gz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: Tango-x86_64

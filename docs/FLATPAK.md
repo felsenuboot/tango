@@ -11,9 +11,9 @@ Flathub supplies the runtime and build tools. Tango itself is not published ther
 From a checkout of this repository:
 
 ```sh
-sudo dnf install flatpak flatpak-builder python3
+sudo dnf install flatpak python3
 flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install --user flathub org.gnome.Platform//49 org.gnome.Sdk//49 org.freedesktop.Sdk.Extension.rust-stable//25.08
+flatpak install --user flathub org.flatpak.Builder//stable org.gnome.Platform//49 org.gnome.Sdk//49 org.freedesktop.Sdk.Extension.rust-stable//25.08
 bash packaging/flatpak/build.sh
 flatpak install --user "dist/Tango-$(flatpak --default-arch).flatpak"
 flatpak run io.github.felsenuboot.Tango
@@ -61,9 +61,10 @@ runner or VM for an Intel/AMD Fedora laptop. The workflow builds on Ubuntu
 x86_64 and uploads the bundle as an Actions artifact. It can be run manually
 once the workflow is on the default branch, and runs on relevant pull requests.
 
-Initial validation on this Mac covers source generation and packaging syntax.
-There is no local Flatpak installation or running Docker daemon; a full Linux
-build and graphical Fedora smoke test remain required.
+The workflow installs the generated bundle and runs its executable with the
+runtime (not the SDK), then checks exported desktop/icon files and composed
+AppStream metadata before uploading. This is a headless packaging check;
+graphical Fedora testing is still required.
 
 ## Sandbox behavior and checks
 
@@ -93,3 +94,20 @@ or git sources. For more complex dependency sources, use the upstream
 [Flatpak Cargo generator](https://github.com/flatpak/flatpak-builder-tools/tree/master/cargo).
 See also [Flatpak build documentation](https://docs.flatpak.org/en/latest/building.html)
 and [sandbox permissions](https://docs.flatpak.org/en/latest/sandbox-permissions.html).
+
+## Builder compatibility
+
+The build script deliberately uses `flatpak run --user org.flatpak.Builder//stable`
+on both Fedora and CI instead of the distribution's `flatpak-builder`. Ubuntu
+22.04 supplies the old 1.2 series, which calls `appstream-compose` inside the SDK.
+GNOME 49 supplies the modern `appstreamcli compose` instead. Installing
+`appstream-compose` on the host cannot fix a missing executable inside the SDK.
+Modern Builder uses the new command; AppStream composition stays enabled.
+See [upstream Builder 1.4.4 source](https://github.com/flatpak/flatpak-builder/blob/1.4.4/src/builder-manifest.c).
+
+Install the Builder application as shown above even if a native builder is
+already installed. The script prints its version and Flatpak commit for build
+traceability, checks the SDK's composer before compilation and removes stale
+bundle output. Stable Builder and SDK refs receive upstream updates; this is a
+shared toolchain recipe, not a claim of bit-for-bit reproducibility. The
+application manifest and pinned Cargo sources remain unchanged.
