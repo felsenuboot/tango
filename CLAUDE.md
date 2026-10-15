@@ -14,9 +14,10 @@ history before that was rewritten to drop a session transcript, #151).
   stumble; `docs/DEVELOPMENT.md` has the reading order.
 - **JMdict comes from `https://www.edrdg.org/pub/Nihongo/JMdict.gz`.** The
   `ftp.edrdg.org` host has a broken TLS certificate. Nothing is bundled.
-- **No Flatpak for Felix, no Flathub ever.** Felix runs Arch and wants a PKGBUILD;
-  Flathub is against its terms for this project. A Flatpak manifest is at most
-  a low-priority option for other distros.
+- **Arch and Flatpak packaging.** Keep the PKGBUILD for Arch. Felix requested
+  Flatpak bundles for a Fedora/GNOME collaborator; see `docs/FLATPAK.md` and
+  `packaging/flatpak`. Build on Linux or CI when developing on macOS.
+  Do not publish Tango on Flathub; only use its SDK/runtime dependencies.
 - **JMdict ships German/Dutch/French glosses as separate senses** with no
   alignment to the English ones. `Entry::grouped` pairs a language by position
   when its sense count equals the English count, else shows it as a block
